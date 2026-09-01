@@ -1,4 +1,4 @@
-# ml — a neural network you can see
+# nn-sandbox — a neural network you can see
 
 A learning project. The end goal is a visual builder for neural networks in the
 browser; right now it's raw NumPy and notebooks.
