@@ -11,3 +11,10 @@ wheels/
 
 # training data
 mnist_dataset
+
+# Node / frontend
+node_modules/
+
+# Test / build caches
+.pytest_cache/
+.ruff_cache/

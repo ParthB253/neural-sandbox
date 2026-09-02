@@ -39,7 +39,7 @@ cross-entropy cost, backprop written out term by term, plain gradient descent.
 On MNIST it reaches **~95.4% test accuracy after 10 training iterations**. Slow,
 but every line is legible.
 
-**`visualiser/objects.py`** — the generalisation. Once I'd struggled through
+**`backend/src/nnsandbox/core.py`** — the generalisation. Once I'd struggled through
 gradient descent for one fixed network, it was clear the shape of the code barely
 matters — the _architecture_ does. So this is `Layer` / `Link` / `Network`:
 
@@ -66,11 +66,30 @@ else.
 **Next:** static rendering — draw a `Network` as a diagram (layers, links,
 shapes) before making any of it interactive.
 
+## Layout
+
+```
+backend/          Python: NumPy core + FastAPI service
+  src/nnsandbox/
+    core.py         Layer / Link / Network — the math
+    schemas.py      pydantic topology models (the wire format)
+    api.py          FastAPI app
+  tests/
+frontend/         React app (not scaffolded yet — Vite + TS when it lands)
+notebooks/        exploratory, hand-written nets
+mnist_dataset/    IDX files, git-ignored, local only
+```
+
+The frontend renders and edits a `NetworkSpec` (topology only — no weights);
+Python stays the single source of truth and the only place the math lives.
+
 ## Running it
 
 ```
+cd backend
 uv sync
+uv run uvicorn nnsandbox.api:app --reload   # http://localhost:8000, docs at /docs
+uv run pytest
 ```
 
-Then open `notebooks/mnist_nn.ipynb` in your editor. The MNIST IDX files should live in
-`mnist_dataset/`.
+Notebooks use the same environment: `uv run jupyter lab` from `backend/`.

@@ -1,0 +1,29 @@
+[project]
+name = "nnsandbox"
+version = "0.1.0"
+description = "A visual builder for neural networks: NumPy core + FastAPI backend"
+requires-python = ">=3.12"
+dependencies = [
+    "numpy>=2.5.2",
+    "fastapi>=0.115",
+    "uvicorn[standard]>=0.34",
+]
+
+[dependency-groups]
+dev = [
+    "pytest>=8",
+    "httpx>=0.28",  # fastapi.testclient
+    "ipykernel>=7.3.0",
+    "matplotlib>=3.11.1",
+    "pillow>=12.3.0",
+]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/nnsandbox"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
