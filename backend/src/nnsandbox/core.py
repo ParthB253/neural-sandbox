@@ -143,10 +143,11 @@ class Network:
             order.append(layer)
             for link in layer.to_links:
                 succ = link.to_layer
-                if succ in indeg:
-                    indeg[succ] -= 1
-                    if indeg[succ] == 0:
-                        queue.append(succ)
+                if succ not in indeg:
+                    continue
+                indeg[succ] -= 1
+                if indeg[succ] == 0:
+                    queue.append(succ)
 
         if len(order) != len(self.layers):
             raise ValueError("Network has a cycle; cannot order layers")
