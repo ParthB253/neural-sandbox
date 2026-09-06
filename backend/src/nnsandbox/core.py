@@ -226,3 +226,15 @@ class Network:
 
         return cost, grad_weights, grad_bias
 
+    def train(self, train_data: list[dict[Layer, np.ndarray]], train_labels: list[dict[Layer, np.ndarray]], epochs: int):
+        for e in range(epochs):
+            tc = 0
+            for input, label in zip(train_data, train_labels):
+                cost, grad_weights, grad_bias = self.backprop(input, label)
+                tc += cost
+                for link, delta in grad_weights.items():
+                    link.weights -= delta
+                for layer, delta in grad_bias.items():
+                    layer.bias -= delta
+            print(f"Average cost for epoch {e+1}: {tc/len(train_data)}")
+
