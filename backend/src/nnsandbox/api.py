@@ -8,14 +8,16 @@ from fastapi.middleware.cors import CORSMiddleware
 from .core import Layer as _Layer  # Registers the layer node type.
 from .datasets import DataSource as _DataSource  # Registers datasource node types.
 from .nodes import Node, NodeInfo
-from .schemas import DatasetSpec, FeedSpec, LayerSpec, LinkSpec, NetworkSpec
+from .schemas import DatasetSpec, FeedSpec, LayerSpec, LinkSpec, NetworkSpec, ProjectSpec
+from .uploads import router as uploads_router
 
 app = FastAPI(title="nn-sandbox")
+app.include_router(uploads_router)
 
 # Vite (5173) and CRA-style (3000) dev servers.
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://localhost:5173", "http://localhost:3000"],
+    allow_origins=["http://localhost:5173", "http://127.0.0.1:5173", "http://localhost:3000"],
     allow_methods=["*"],
     allow_headers=["*"],
 )
@@ -36,6 +38,21 @@ _network = NetworkSpec(
 )
 _datasets: dict[str, DatasetSpec] = {}
 _feeds: dict[str, FeedSpec] = {}
+
+
+@app.get("/project")
+def get_project() -> ProjectSpec:
+    return ProjectSpec(network=_network, datasets=list(_datasets.values()), feeds=list(_feeds.values()))
+
+
+@app.put("/project")
+def put_project(project: ProjectSpec) -> ProjectSpec:
+    """Commit a canvas edit atomically, including its connections."""
+    global _network, _datasets, _feeds
+    _network = project.network
+    _datasets = {dataset.id: dataset for dataset in project.datasets}
+    _feeds = {feed.id: feed for feed in project.feeds}
+    return project
 
 
 @app.get("/health")

@@ -1,38 +1,38 @@
-import { Handle, Position, type NodeProps } from "@xyflow/react";
+import { useContext } from 'react';
+import { Handle, Position, type NodeProps } from '@xyflow/react';
+import { EditorContext } from './editorContext';
 
-// One card per layer. Data flows left-to-right, so the incoming handle sits on
-// the left edge and the outgoing one on the right.
-export interface LayerNodeData {
-  name: string; // role in the graph: Input / Hidden / Output
-  layerId: string; // the spec id, shown distinctly
-  size: number;
-  activation: string;
-  [key: string]: unknown;
-}
-
-export default function LayerNode({ data, selected }: NodeProps) {
-  const { name, layerId, size, activation } = data as LayerNodeData;
+export default function LayerNode({ id, data, selected }: NodeProps) {
+  const { act, disabled } = useContext(EditorContext);
+  const isSource = data.kind === 'dataset';
   return (
-    <div className={`layer-node${selected ? " layer-node--selected" : ""}`}>
-      <Handle type="target" position={Position.Left} className="layer-node__handle" />
-
+    <div className={`layer-node${selected ? ' layer-node--selected' : ''}`}>
+      {!isSource && <Handle type="target" position={Position.Left} className="layer-node__handle" />}
       <header className="layer-node__header">
-        <span className="layer-node__name">{name}</span>
-        <code className="layer-node__id">{layerId}</code>
+        <span className="layer-node__name">{isSource ? 'Data source' : String(data.name)}</span>
+        <span className="node-kind">{isSource ? String(data.format).toUpperCase() : 'LAYER'}</span>
       </header>
-
       <div className="layer-node__body">
-        <div className="layer-node__row">
-          <span className="layer-node__key">size</span>
-          <span className="layer-node__val">{size}</span>
-        </div>
-        <div className="layer-node__row">
-          <span className="layer-node__key">activation</span>
-          <code className="layer-node__val layer-node__val--mono">{activation}</code>
+        <strong className="node-title" title={id}>{id}</strong>
+        {isSource ? <>
+          <span className="node-file" title={String(data.filename)}>{String(data.filename)}</span>
+          <div className="layer-node__row"><span className="layer-node__key">transforms</span><span>{String(data.transforms)}</span></div>
+        </> : <>
+          <div className="layer-node__row"><span className="layer-node__key">size</span><span>{String(data.size)}</span></div>
+          <div className="layer-node__row"><span className="layer-node__key">activation</span><code>{String(data.activation)}</code></div>
+        </>}
+      </div>
+      <Handle type="source" position={Position.Right} className="layer-node__handle" />
+      <div className="node-actions nodrag nopan">
+        <button className="node-actions__trigger" aria-label={`Actions for ${id}`} title="Node actions" disabled={disabled}>+</button>
+        <div className="node-actions__menu" aria-label={`Actions for ${id}`}>
+          <button disabled={disabled} onClick={() => act('add', id)}>+ Add layer</button>
+          <button disabled={disabled} onClick={() => act('connect', id)}>Connect to layer</button>
+          <button disabled={disabled} onClick={() => act('edit', id)}>Edit</button>
+          {isSource && <button disabled={disabled} onClick={() => act('transforms', id)}>Set transforms</button>}
+          <button className="danger" disabled={disabled} onClick={() => act('delete', id)}>Delete node</button>
         </div>
       </div>
-
-      <Handle type="source" position={Position.Right} className="layer-node__handle" />
     </div>
   );
 }

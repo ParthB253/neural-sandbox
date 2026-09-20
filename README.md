@@ -1,7 +1,7 @@
 # nn-sandbox — a neural network you can see
 
 A learning project. The end goal is a visual builder for neural networks in the
-browser; right now it's raw NumPy and notebooks.
+browser, with a React pipeline editor backed by raw NumPy and notebooks.
 
 ## Why
 
@@ -51,8 +51,8 @@ matters — the _architecture_ does. So this is `Layer` / `Link` / `Network`:
   their derivatives; nothing is hard-coded
 - backprop is checked against numerical gradients
 
-There's no training loop attached to `Network` yet. That, and anything visual, is
-still ahead.
+There's no training loop attached to `Network` yet. The visual editor now supports
+topology, data sources, connections, and transform configuration.
 
 ## Where it's going
 
@@ -63,8 +63,7 @@ Optimiser details are there if you open them and folded away if you don't. It
 abstracts away just the parts that were boilerplate to begin with — and nothing
 else.
 
-**Next:** static rendering — draw a `Network` as a diagram (layers, links,
-shapes) before making any of it interactive.
+**Next:** connect the editable pipeline to network execution and training.
 
 ## Layout
 
@@ -75,12 +74,13 @@ backend/          Python: NumPy core + FastAPI service
     schemas.py      pydantic topology models (the wire format)
     api.py          FastAPI app
   tests/
-frontend/         React app (not scaffolded yet — Vite + TS when it lands)
+frontend/         React + TypeScript pipeline editor (Vite + React Flow)
 notebooks/        exploratory, hand-written nets
 mnist_dataset/    IDX files, git-ignored, local only
 ```
 
-The frontend renders and edits a `NetworkSpec` (topology only — no weights);
+The frontend renders and edits a `ProjectSpec` (network topology, data sources,
+and feeds — no weights);
 Python stays the single source of truth and the only place the math lives.
 
 ## Running it
@@ -93,3 +93,42 @@ uv run pytest
 ```
 
 Notebooks use the same environment: `uv run jupyter lab` from `backend/`.
+
+## Pipeline editor
+
+The frontend is a React + TypeScript editor using React Flow. Run it alongside
+the backend (Node 22.18+ is needed for the frontend test runner):
+
+```sh
+cd frontend
+pnpm install
+pnpm dev                 # http://localhost:5173
+pnpm build
+pnpm lint
+pnpm test
+```
+
+- **Project files:** upload files once and reuse them across data-source nodes.
+  CSV, JSON, NumPy and IDX sources can be configured in the editor. Uploads are
+  limited to 100 MB each and stored on disk under `workspaces/files/` (git-ignored).
+  Set `NNSANDBOX_UPLOAD_DIR` to use a different storage directory.
+- **Start a pipeline:** click an empty canvas to configure a data source, select a
+  stored file, or upload a new one. Use **+ Data source** for additional sources.
+  **Clear canvas** removes the graph while retaining uploaded files.
+- **Build from a node:** hover at its right edge (or focus/click its + button) to
+  add a connected layer, connect to an existing layer, edit, or delete. Data
+  sources also offer an ordered transform editor. Both kinds of backend wiring
+  (feeds and links) appear as **connections**. A data-source connection lets you
+  choose a field and whether it supplies inputs or training targets.
+- **Graph tab:** lists data sources, layers, and all connections. Select a node
+  to locate it; edit or delete items here. Deleting a node removes its attached
+  connections. Selected canvas items can also be removed with Delete/Backspace.
+  Files in use are protected from deletion until their source nodes are removed.
+
+Canvas edits are validated and saved atomically through `GET/PUT /project`.
+They survive page reloads but, like the original API draft, reset when the
+backend restarts. Uploaded file bytes and metadata persist across restarts.
+The backend must be running to edit; failed saves keep the last saved graph and
+show an error. Set `VITE_API_URL` if the API is not at `http://localhost:8000`.
+This remains a topology/configuration editor: transforms and training are not
+executed by the browser.

@@ -159,3 +159,27 @@ class FeedSpec(BaseModel):
     field: str = Field(min_length=1)
     layer: str = Field(min_length=1)
     role: Literal["input", "target"] = "input"
+
+
+class ProjectSpec(BaseModel):
+    network: NetworkSpec = Field(default_factory=NetworkSpec)
+    datasets: list[DatasetSpec] = Field(default_factory=list)
+    feeds: list[FeedSpec] = Field(default_factory=list)
+
+    @model_validator(mode="after")
+    def valid_project(self) -> "ProjectSpec":
+        layers = {layer.id for layer in self.network.layers}
+        datasets = {dataset.id for dataset in self.datasets}
+        if len(datasets) != len(self.datasets) or layers & datasets:
+            raise ValueError("Node IDs must be unique across layers and data sources")
+        connections = [link.id for link in self.network.links] + [feed.id for feed in self.feeds]
+        if len(connections) != len(set(connections)):
+            raise ValueError("Connection IDs must be unique")
+        pairs = [(link.source, link.target) for link in self.network.links]
+        for feed in self.feeds:
+            if feed.dataset not in datasets or feed.layer not in layers:
+                raise ValueError("A connection references an unknown node")
+            pairs.append((feed.dataset, feed.layer))
+        if len(pairs) != len(set(pairs)):
+            raise ValueError("These nodes are already connected")
+        return self
