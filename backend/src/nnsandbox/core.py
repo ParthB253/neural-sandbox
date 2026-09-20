@@ -1,12 +1,27 @@
 import numpy as np
 from collections import defaultdict
 
+from .nodes import Node, NodeConfig, NodeInfo, NodePort
+
 NP_EMPTY = np.array(0)
 SUM_AX_0 = lambda x: np.sum(x, 0)
 # vjp of SUM_AX_0: s = c_1 + ... + c_k, so dL/dc_i = dL/ds for every i.
 D_SUM_AX_0 = lambda contribs, g: [g] * len(contribs)
 
-class Layer:
+class Layer(Node):
+    node_info = NodeInfo(
+        type="layer",
+        label="Layer",
+        category="network",
+        description="A trainable layer in the neural-network graph.",
+        config=(
+            NodeConfig("size", "integer", description="Number of neurons"),
+            NodeConfig("activation", "activation", False, "relu"),
+        ),
+        inputs=(NodePort("input", "Incoming layer or datasource fields", multiple=True),),
+        outputs=(NodePort("output", "Activated layer values", multiple=True),),
+    )
+
     def __init__(self, activation, d_activation, compounder=SUM_AX_0, d_compounder=D_SUM_AX_0,
                  size: int=0, from_array: np.ndarray=NP_EMPTY, bias: np.ndarray=NP_EMPTY) -> None:
         if len(from_array.shape) == 1:
@@ -237,4 +252,3 @@ class Network:
                 for layer, delta in grad_bias.items():
                     layer.bias -= delta
             print(f"Average cost for epoch {e+1}: {tc/len(train_data)}")
-
