@@ -1,7 +1,8 @@
-# nn-sandbox — a neural network you can see
+# NeuralSandbox — a neural network you can see
 
-A learning project. The end goal is a visual builder for neural networks in the
-browser, with a React pipeline editor backed by raw NumPy and notebooks.
+A learning project for making neural networks less opaque. It starts with raw
+NumPy and notebooks, then carries the same ideas into a visual builder in the
+browser.
 
 ## Why
 
@@ -39,7 +40,7 @@ cross-entropy cost, backprop written out term by term, plain gradient descent.
 On MNIST it reaches **~95.4% test accuracy after 10 training iterations**. Slow,
 but every line is legible.
 
-**`backend/src/nnsandbox/core.py`** — the generalisation. Once I'd struggled through
+**`backend/src/neuralsandbox/core.py`** — the generalisation. Once I'd struggled through
 gradient descent for one fixed network, it was clear the shape of the code barely
 matters — the _architecture_ does. So this is `Layer` / `Link` / `Network`:
 
@@ -51,8 +52,10 @@ matters — the _architecture_ does. So this is `Layer` / `Link` / `Network`:
   their derivatives; nothing is hard-coded
 - backprop is checked against numerical gradients
 
-There's no training loop attached to `Network` yet. The visual editor now supports
-topology, data sources, connections, and transform configuration.
+`Network.train` is deliberately bare: it applies the gradients directly, without
+an optimiser hiding the mechanics. The visual editor supports topology, data
+sources, connections, transforms, and named network documents; it does not run
+the pipeline or train a network yet.
 
 ## Where it's going
 
@@ -69,7 +72,7 @@ else.
 
 ```
 backend/          Python: NumPy core + FastAPI service
-  src/nnsandbox/
+  src/neuralsandbox/
     core.py         Layer / Link / Network — the math
     schemas.py      pydantic topology models (the wire format)
     api.py          FastAPI app
@@ -88,7 +91,7 @@ Python stays the single source of truth and the only place the math lives.
 ```
 cd backend
 uv sync
-uv run uvicorn nnsandbox.api:app --reload   # http://localhost:8000, docs at /docs
+uv run uvicorn neuralsandbox.api:app --reload   # http://localhost:8000, docs at /docs
 uv run pytest
 ```
 
@@ -111,7 +114,13 @@ pnpm test
 - **Project files:** upload files once and reuse them across data-source nodes.
   CSV, JSON, NumPy and IDX sources can be configured in the editor. Uploads are
   limited to 100 MB each and stored on disk under `workspaces/files/` (git-ignored).
-  Set `NNSANDBOX_UPLOAD_DIR` to use a different storage directory.
+  Set `NEURALSANDBOX_UPLOAD_DIR` to use a different storage directory.
+- **Network documents:** startup and **File → New network** begin with an empty
+  canvas. Edit the title beside the nn icon. **File → Save** (Ctrl/⌘ S) writes the
+  current network to disk; **Save as** creates a new network with its own ID and
+  title. **Open saved network** restores a saved graph, its source configuration,
+  transforms, and connections. Switching networks prompts before discarding
+  unsaved changes. Uploaded files remain shared, independent resources.
 - **Start a pipeline:** click an empty canvas to configure a data source, select a
   stored file, or upload a new one. Use **+ Data source** for additional sources.
   **Clear canvas** removes the graph while retaining uploaded files.
@@ -123,12 +132,24 @@ pnpm test
 - **Graph tab:** lists data sources, layers, and all connections. Select a node
   to locate it; edit or delete items here. Deleting a node removes its attached
   connections. Selected canvas items can also be removed with Delete/Backspace.
-  Files in use are protected from deletion until their source nodes are removed.
+  Files used by the current draft or any saved network are protected from
+  deletion until their source nodes are removed and the affected networks saved.
 
-Canvas edits are validated and saved atomically through `GET/PUT /project`.
-They survive page reloads but, like the original API draft, reset when the
-backend restarts. Uploaded file bytes and metadata persist across restarts.
-The backend must be running to edit; failed saves keep the last saved graph and
-show an error. Set `VITE_API_URL` if the API is not at `http://localhost:8000`.
+Canvas edits update the current in-memory draft through `GET/PUT /project`.
+Use **File → Save** to persist a network across backend restarts; a restart opens
+a fresh empty draft, and saved networks remain available through the File menu.
+Each `NetworkSpec` has a UUID `id` and an independent `title`. Clearing the canvas
+preserves both; creating a new network or using Save as allocates a new ID.
+
+`GET /networks` lists saved networks; `PUT /networks/{id}` saves one atomically;
+`POST /networks` saves a copy; `GET /networks/{id}` reads a saved snapshot; and
+`POST /networks/{id}/open` loads it into the current draft. Snapshots are stored in
+`workspaces/networks/`, configurable with `NEURALSANDBOX_NETWORK_DIR`. They contain
+configuration and references to shared files, not copies of uploaded data.
+Uploaded file bytes and metadata also persist across restarts.
+
+The backend must be running to edit. Failed saves show an error and preserve the
+previous disk snapshot. Set `VITE_API_URL` if the API is not at
+`http://localhost:8000`.
 This remains a topology/configuration editor: transforms and training are not
 executed by the browser.

@@ -1,5 +1,5 @@
 [project]
-name = "nnsandbox"
+name = "neuralsandbox"
 version = "0.1.0"
 description = "A visual builder for neural networks: NumPy core + FastAPI backend"
 requires-python = ">=3.12"
@@ -23,7 +23,7 @@ requires = ["hatchling"]
 build-backend = "hatchling.build"
 
 [tool.hatch.build.targets.wheel]
-packages = ["src/nnsandbox"]
+packages = ["src/neuralsandbox"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

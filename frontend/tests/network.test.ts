@@ -1,9 +1,11 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { connectionError, connections, nextPosition, removeItems, type ProjectSpec } from '../src/network.ts';
+import { clearCanvas, connectionError, connections, emptyProject, nextPosition, removeItems, type ProjectSpec } from '../src/network.ts';
 
 const project: ProjectSpec = {
   network: {
+    id: '3b813f54-c197-4fc4-a079-66e2b5868149',
+    title: 'Classifier',
     layers: [
       { id: 'a', size: 4, activation: 'relu', pos: [330, 0] },
       { id: 'b', size: 2, activation: 'softmax', pos: [660, 0] },
@@ -29,6 +31,23 @@ test('deleting a layer removes incoming feeds and outgoing links atomically', ()
   assert.equal(next.datasets.length, 1);
   assert.deepEqual(connections(next), []);
   assert.equal(project.network.layers.length, 2, 'original project remains unchanged');
+  assert.equal(next.network.id, project.network.id);
+  assert.equal(next.network.title, project.network.title);
+});
+
+test('new networks start empty with distinct identities, while clearing retains identity', () => {
+  const first = emptyProject();
+  const second = emptyProject();
+  assert.notEqual(first.network.id, second.network.id);
+  assert.equal(first.network.title, 'Untitled network');
+  assert.deepEqual(first.network.layers, []);
+  assert.deepEqual(first.datasets, []);
+  const cleared = clearCanvas(project);
+  assert.equal(cleared.network.id, project.network.id);
+  assert.equal(cleared.network.title, project.network.title);
+  assert.deepEqual(connections(cleared), []);
+  assert.deepEqual(cleared.network.layers, []);
+  assert.deepEqual(cleared.datasets, []);
 });
 
 test('deleting a source or a connection preserves unrelated topology', () => {

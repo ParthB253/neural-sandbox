@@ -6,6 +6,7 @@ shape of the graph. Weights, activations and gradients get their own
 """
 from pathlib import Path
 from typing import Annotated, Literal
+from uuid import UUID, uuid4
 
 from pydantic import BaseModel, Field, field_validator, model_validator
 
@@ -26,8 +27,15 @@ class LinkSpec(BaseModel):
 
 
 class NetworkSpec(BaseModel):
+    id: UUID = Field(default_factory=uuid4)
+    title: str = Field(default="Untitled network", min_length=1, max_length=200)
     layers: list[LayerSpec] = Field(default_factory=list)
     links: list[LinkSpec] = Field(default_factory=list)
+
+    @field_validator("title", mode="before")
+    @classmethod
+    def clean_title(cls, value: str) -> str:
+        return value.strip() if isinstance(value, str) else value
 
     @model_validator(mode="after")
     def valid_topology(self) -> "NetworkSpec":

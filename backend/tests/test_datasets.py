@@ -4,8 +4,8 @@ import numpy as np
 import pytest
 from PIL import Image
 
-from nnsandbox.core import Layer
-from nnsandbox.datasets import (
+from neuralsandbox.core import Layer
+from neuralsandbox.datasets import (
     Cast,
     CsvSource,
     DataSource,
@@ -20,7 +20,7 @@ from nnsandbox.datasets import (
     SelectFields,
     build_data_source,
 )
-from nnsandbox.schemas import DatasetSpec
+from neuralsandbox.schemas import DatasetSpec
 
 
 def test_csv_source_builds_named_fields_and_applies_transforms(tmp_path):

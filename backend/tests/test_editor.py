@@ -4,13 +4,14 @@ from pathlib import Path
 import pytest
 from fastapi.testclient import TestClient
 
-from nnsandbox import api, uploads
+from neuralsandbox import api, uploads, network_store
 
 client = TestClient(api.app)
 
 
 @pytest.fixture(autouse=True)
 def isolated_project(tmp_path, monkeypatch):
+    monkeypatch.setattr(network_store, "NETWORK_DIR", tmp_path / "networks")
     monkeypatch.setattr(uploads, "UPLOAD_DIR", tmp_path / "files")
     monkeypatch.setattr(api, "_network", api.NetworkSpec())
     monkeypatch.setattr(api, "_datasets", {})

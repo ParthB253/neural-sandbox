@@ -1,6 +1,6 @@
 from fastapi.testclient import TestClient
 
-from nnsandbox.api import app
+from neuralsandbox.api import app
 
 
 client = TestClient(app)

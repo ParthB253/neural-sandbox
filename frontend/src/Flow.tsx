@@ -6,8 +6,9 @@ import {
 import '@xyflow/react/dist/style.css';
 import LayerNode from './LayerNode';
 import EditorDialog, { type DialogState } from './EditorDialog';
+import NetworkHeader from './NetworkHeader';
 import { EditorContext, type NodeAction } from './editorContext';
-import { connections, emptyProject, removeItems, request, type ProjectSpec, type StoredFile } from './network';
+import { clearCanvas, connections, emptyProject, removeItems, request, type ProjectSpec, type StoredFile, type NetworkSummary } from './network';
 
 const nodeTypes = { layer: LayerNode };
 function toGraph(project: ProjectSpec): { nodes: Node[]; edges: Edge[] } {
@@ -38,10 +39,23 @@ export default function Flow() {
   const [ready, setReady] = useState(false);
   const [error, setError] = useState('');
   const [status, setStatus] = useState('Connecting…');
+  const [savedSnapshot, setSavedSnapshot] = useState<string | null>(null);
   const flow = useRef<ReactFlowInstance<Node, Edge> | null>(null);
   const uploadInput = useRef<HTMLInputElement>(null);
   const locked = useRef(false);
   const disabled = busy || !ready;
+  const dirty = savedSnapshot !== null ? JSON.stringify(project) !== savedSnapshot :
+    project.network.title !== 'Untitled network' || project.network.layers.length > 0 || project.datasets.length > 0;
+
+  useEffect(() => {
+    document.title = `${project.network.title || 'Untitled network'} · NeuralSandbox`;
+  }, [project.network.title]);
+  useEffect(() => {
+    if (!dirty) return;
+    const warn = (event: BeforeUnloadEvent) => { event.preventDefault(); event.returnValue = ''; };
+    window.addEventListener('beforeunload', warn);
+    return () => window.removeEventListener('beforeunload', warn);
+  }, [dirty]);
 
   const apply = useCallback((next: ProjectSpec) => {
     setProject(next);
@@ -53,7 +67,9 @@ export default function Flow() {
   const load = useCallback(() => {
     if (locked.current) return;
     locked.current = true;
-    return Promise.all([request<ProjectSpec>('/project'), request<StoredFile[]>('/files')]).then(([next, stored]) => {
+    return Promise.all([request<ProjectSpec>('/project'), request<StoredFile[]>('/files'), request<NetworkSummary[]>('/networks')]).then(async ([next, stored, networks]) => {
+      const saved = networks.some(network => network.id === next.network.id) ? await request<ProjectSpec>(`/networks/${next.network.id}`) : null;
+      setSavedSnapshot(saved ? JSON.stringify(saved) : null);
       apply(next);
       setFiles(stored);
       setReady(true);
@@ -79,7 +95,7 @@ export default function Flow() {
           void flow.current?.fitView({ padding: 0.3, maxZoom: 1, duration: 250 });
         }));
       }
-      setStatus('Changes saved');
+      setStatus('Draft updated');
       return true;
     } catch (err) {
       setError(errorMessage(err));
@@ -87,6 +103,41 @@ export default function Flow() {
       setStatus('Changes not saved');
       return false;
     } finally { locked.current = false; setBusy(false); }
+  }
+  async function persistNetwork(copyTitle?: string): Promise<boolean> {
+    if (locked.current || !ready) return false;
+    locked.current = true;
+    setBusy(true);
+    setError('');
+    try {
+      const next = { ...project, network: { ...project.network, title: (copyTitle ?? project.network.title).trim() || 'Untitled network' } };
+      const saved = await request<ProjectSpec>(copyTitle === undefined ? `/networks/${next.network.id}` : '/networks', copyTitle === undefined ? 'PUT' : 'POST', next);
+      apply(saved);
+      setSavedSnapshot(JSON.stringify(saved));
+      setStatus('Network saved');
+      return true;
+    } catch (err) { setError(errorMessage(err)); return false; }
+    finally { locked.current = false; setBusy(false); }
+  }
+  async function openNetwork(id: string): Promise<boolean> {
+    if (locked.current || !ready) return false;
+    locked.current = true;
+    setBusy(true);
+    setError('');
+    try {
+      const next = await request<ProjectSpec>(`/networks/${id}/open`, 'POST');
+      apply(next);
+      setSavedSnapshot(JSON.stringify(next));
+      setStatus('Network opened');
+      requestAnimationFrame(() => requestAnimationFrame(() => { void flow.current?.fitView({ padding: 0.3, maxZoom: 1 }); }));
+      return true;
+    } catch (err) { setError(errorMessage(err)); return false; }
+    finally { locked.current = false; setBusy(false); }
+  }
+  async function newNetwork(): Promise<boolean> {
+    if (!await save(emptyProject())) return false;
+    setSavedSnapshot(null);
+    return true;
   }
   async function upload(selected: FileList): Promise<StoredFile[]> {
     if (locked.current) return [];
@@ -149,12 +200,10 @@ export default function Flow() {
   const allConnections = connections(project);
   return <EditorContext.Provider value={{ act, disabled }}>
     <div className="workspace">
-      <header className="app-header">
-        <div className="app-brand"><span className="brand-mark">nn</span><strong>nn-sandbox</strong><span className="header-divider" /><span className="muted">Pipeline builder</span></div>
-        <div className="header-actions"><span className={`save-status${ready ? ' save-status--ready' : ''}`} role="status">{busy ? 'Working…' : status}</span>
-          <button disabled={disabled || !nodes.length} onClick={() => open({ kind: 'confirm', title: 'Clear the canvas?', description: 'All nodes and connections will be removed. Your stored project files will remain available.', confirm: () => save(emptyProject()) })}>Clear canvas</button>
-        </div>
-      </header>
+      <NetworkHeader title={project.network.title} disabled={disabled} busy={busy} dirty={dirty} saved={savedSnapshot !== null} status={status} error={error}
+        onRename={title => setProject(previous => ({ ...previous, network: { ...previous.network, title } }))}
+        onSave={persistNetwork} onNew={newNetwork} onOpen={openNetwork} clearError={() => setError('')} canClear={nodes.length > 0}
+        onClear={() => open({ kind: 'confirm', title: 'Clear the canvas?', description: 'All nodes and connections will be removed. Your stored project files will remain available.', confirm: () => save(clearCanvas(project)) })} />
       <aside className="sidebar">
         <div className="sidebar-tabs" role="tablist" aria-label="Project sidebar">
           <button id="files-tab" role="tab" aria-selected={tab === 'files'} aria-controls="files-panel" onClick={() => setTab('files')}>Project files <span>{files.length}</span></button>
@@ -171,7 +220,7 @@ export default function Flow() {
               <div className="file-actions"><button disabled={disabled} onClick={() => open({ kind: 'source', file })}>+ Add to canvas</button><button className="danger" aria-label={`Delete file ${file.name}`} title={uses ? 'Remove data source nodes using this file first' : 'Delete stored file'} disabled={disabled || uses > 0} onClick={() => deleteFile(file)}>Delete</button></div>
             </li>;
           })}</ul>
-          <p className="storage-note">Files persist on this server. Canvas edits are saved for the current server session.</p>
+          <p className="storage-note">Files are shared across networks. Use File → Save to keep this network for later.</p>
         </section> : <section className="sidebar-panel" id="graph-panel" role="tabpanel" aria-labelledby="graph-tab">
           <div className="section-heading"><h2>Pipeline</h2><span className="muted">{nodes.length} nodes</span></div>
           <p className="sidebar-help">Select a node to locate it. All wiring appears as connections.</p>
@@ -196,7 +245,7 @@ export default function Flow() {
           onNodeDoubleClick={(_, node) => act('edit', node.id)}
           onEdgeClick={(_, edge) => { if (!disabled) editConnection(edge.id); }}
           onConnect={connection => { if (!disabled) open({ kind: 'connection', source: connection.source, target: connection.target }); }}
-          onBeforeDelete={async ({ nodes: removedNodes, edges: removedEdges }) => { if (!disabled) await save(removeItems(project, removedNodes.map(node => node.id), removedEdges.map(edge => edge.id))); return false; }}
+          onBeforeDelete={async ({ nodes: removedNodes, edges: removedEdges }) => { if (!disabled && !document.querySelector('dialog[open]')) await save(removeItems(project, removedNodes.map(node => node.id), removedEdges.map(edge => edge.id))); return false; }}
           onPaneClick={event => { if (ready && !busy && !nodes.length) { const point = flow.current?.screenToFlowPosition({ x: event.clientX, y: event.clientY }); open({ kind: 'source', position: point ? [point.x, point.y] : undefined }); } }}
           proOptions={{ hideAttribution: true }}>
           <Background variant={BackgroundVariant.Dots} gap={16} size={1} color="#c1c8d1" />

@@ -1,7 +1,5 @@
-"""FastAPI app. For now it just holds one in-memory NetworkSpec and lets the
-frontend read and replace it. No persistence, no bridge to core.Network yet --
-that (spec -> real Layers/Links, plus a training stream) is the next step.
-"""
+"""An in-memory canvas draft, explicitly saved networks, and shared file storage."""
+from uuid import UUID, uuid4
 from fastapi import FastAPI, HTTPException, Response, status
 from fastapi.middleware.cors import CORSMiddleware
 
@@ -10,32 +8,21 @@ from .datasets import DataSource as _DataSource  # Registers datasource node typ
 from .nodes import Node, NodeInfo
 from .schemas import DatasetSpec, FeedSpec, LayerSpec, LinkSpec, NetworkSpec, ProjectSpec
 from .uploads import router as uploads_router
+from . import network_store
 
-app = FastAPI(title="nn-sandbox")
+app = FastAPI(title="NeuralSandbox")
 app.include_router(uploads_router)
 
 # Vite (5173) and CRA-style (3000) dev servers.
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://localhost:5173", "http://127.0.0.1:5173", "http://localhost:3000"],
+    allow_origins=["http://localhost:5173", "http://localhost:3000"],
     allow_methods=["*"],
     allow_headers=["*"],
 )
 
-# Single shared draft, resets on restart. Seeded with the notebook's FFN.
-_network = NetworkSpec(
-    layers=[
-        LayerSpec(id="in", size=784, activation="identity", pos=(0, 0)),
-        LayerSpec(id="h1", size=16, activation="relu", pos=(240, 0)),
-        LayerSpec(id="h2", size=16, activation="relu", pos=(480, 0)),
-        LayerSpec(id="out", size=10, activation="softmax", pos=(720, 0)),
-    ],
-    links=[
-        LinkSpec(id="in-h1", source="in", target="h1"),
-        LinkSpec(id="h1-h2", source="h1", target="h2"),
-        LinkSpec(id="h2-out", source="h2", target="out"),
-    ],
-)
+# Startup creates an empty draft. Saved networks are opened explicitly.
+_network = NetworkSpec()
 _datasets: dict[str, DatasetSpec] = {}
 _feeds: dict[str, FeedSpec] = {}
 
@@ -53,6 +40,37 @@ def put_project(project: ProjectSpec) -> ProjectSpec:
     _datasets = {dataset.id: dataset for dataset in project.datasets}
     _feeds = {feed.id: feed for feed in project.feeds}
     return project
+
+
+@app.get("/networks")
+def list_networks() -> list[network_store.NetworkSummary]:
+    return network_store.list_networks()
+
+
+@app.get("/networks/{network_id}")
+def read_saved_network(network_id: UUID) -> ProjectSpec:
+    return network_store.read_network(network_id)
+
+
+@app.put("/networks/{network_id}")
+def save_network(network_id: UUID, project: ProjectSpec) -> ProjectSpec:
+    if network_id != project.network.id:
+        raise HTTPException(status_code=409, detail="The path ID and network ID must match")
+    network_store.write_network(project)
+    return put_project(project)
+
+
+@app.post("/networks", status_code=status.HTTP_201_CREATED)
+def save_network_as(project: ProjectSpec) -> ProjectSpec:
+    copy = project.model_copy(deep=True)
+    copy.network.id = uuid4()
+    network_store.write_network(copy)
+    return put_project(copy)
+
+
+@app.post("/networks/{network_id}/open")
+def open_network(network_id: UUID) -> ProjectSpec:
+    return put_project(network_store.read_network(network_id))
 
 
 @app.get("/health")
@@ -227,7 +245,7 @@ def get_node_type(node_type: str) -> NodeInfo:
 def _set_network(layers: list[LayerSpec], links: list[LinkSpec]) -> None:
     global _network
     try:
-        _network = NetworkSpec(layers=layers, links=links)
+        _network = NetworkSpec(id=_network.id, title=_network.title, layers=layers, links=links)
     except ValueError as error:
         raise HTTPException(status_code=422, detail=str(error)) from error
 

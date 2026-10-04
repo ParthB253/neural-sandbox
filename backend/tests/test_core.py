@@ -1,7 +1,7 @@
 """Backprop vs. finite-difference gradients on a non-trivial graph."""
 import numpy as np
 
-from nnsandbox.core import Layer, Network
+from neuralsandbox.core import Layer, Network
 
 sig = lambda z: 1 / (1 + np.exp(-z))
 d_sig = lambda z: sig(z) * (1 - sig(z))

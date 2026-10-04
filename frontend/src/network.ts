@@ -6,7 +6,8 @@ export interface LayerSpec {
   pos: [number, number];
 }
 export interface LinkSpec { id: string; source: string; target: string }
-export interface NetworkSpec { layers: LayerSpec[]; links: LinkSpec[] }
+export interface NetworkSpec { id: string; title: string; layers: LayerSpec[]; links: LinkSpec[] }
+export interface NetworkSummary { id: string; title: string; updated_at: string; layers: number; data_sources: number }
 export type TransformSpec =
   | { type: 'flatten'; field: string }
   | { type: 'cast'; field: string; dtype: string }
@@ -37,7 +38,10 @@ export async function request<T>(path: string, method = 'GET', body?: unknown): 
   }
   return res.status === 204 ? undefined as T : res.json();
 }
-export const emptyProject = (): ProjectSpec => ({ network: { layers: [], links: [] }, datasets: [], feeds: [] });
+export const emptyProject = (): ProjectSpec => ({ network: { id: crypto.randomUUID(), title: 'Untitled network', layers: [], links: [] }, datasets: [], feeds: [] });
+export function clearCanvas(project: ProjectSpec): ProjectSpec {
+  return { network: { ...project.network, layers: [], links: [] }, datasets: [], feeds: [] };
+}
 export function connections(project: ProjectSpec): LinkSpec[] {
   return [...project.network.links, ...project.feeds.map(feed => ({ id: feed.id, source: feed.dataset, target: feed.layer }))];
 }
@@ -60,6 +64,7 @@ export function connectionError(project: ProjectSpec, source: string, target: st
 export function removeItems(project: ProjectSpec, nodes: string[], edges: string[] = []): ProjectSpec {
   return {
     network: {
+      ...project.network,
       layers: project.network.layers.filter(layer => !nodes.includes(layer.id)),
       links: project.network.links.filter(link => !edges.includes(link.id) && !nodes.includes(link.source) && !nodes.includes(link.target)),
     },

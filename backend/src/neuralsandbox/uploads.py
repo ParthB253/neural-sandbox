@@ -6,9 +6,10 @@ from uuid import UUID, uuid4
 
 from fastapi import APIRouter, HTTPException, UploadFile, status
 from pydantic import BaseModel
+from .network_store import file_is_referenced
 
 router = APIRouter()
-UPLOAD_DIR = Path(os.environ.get("NNSANDBOX_UPLOAD_DIR", Path(__file__).resolve().parents[3] / "workspaces" / "files"))
+UPLOAD_DIR = Path(os.environ.get("NEURALSANDBOX_UPLOAD_DIR", Path(__file__).resolve().parents[3] / "workspaces" / "files"))
 MAX_BYTES = 100 * 1024 * 1024
 
 
@@ -76,6 +77,8 @@ def delete_file(file_id: str) -> None:
     stored = StoredFile.model_validate_json(metadata.read_text())
     if any(str(dataset.source.path) == stored.path for dataset in get_project().datasets):
         raise HTTPException(status_code=409, detail="Remove data source nodes using this file before deleting it")
+    if file_is_referenced(stored.path):
+        raise HTTPException(status_code=409, detail="A saved network uses this file. Remove its data source and save that network before deleting the file.")
     Path(stored.path).unlink(missing_ok=True)
     (UPLOAD_DIR / file_id).rmdir()
     metadata.unlink()
