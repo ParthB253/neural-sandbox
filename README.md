@@ -25,24 +25,30 @@ line. It's boilerplate wrapped around mysterious optimisation and math;
 
 So this is me trying to actually understand it:
 
-- No PyTorch, no TensorFlow. Just vectors and NumPy.
+- No PyTorch, no TensorFlow for this first pass. Just vectors and NumPy.
 - Clarity over speed. The optimisation is left bad on purpose, so long as every line
   is readable and you can see why it's there.
+
+Eventually, PyTorch may have a place here too, where its abstractions genuinely
+help. The aim is to move up that abstraction ladder deliberately — for me while
+building it, and for anyone using the visual builder — without losing sight of
+what each layer is doing.
 
 Start with the simplest thing that works — a feed-forward net — and write it out
 by hand.
 
 ## Where it's at
 
-**`notebooks/mnist_nn.ipynb`** — the hand-written version. A fixed
-`[784, 16, 16, 10]` feed-forward net: ReLU hidden layers, softmax output,
-cross-entropy cost, backprop written out term by term, plain gradient descent.
-On MNIST it reaches **~95.4% test accuracy after 10 training iterations**. Slow,
-but every line is legible.
+**`notebooks/mnist_nn.ipynb`** — where I started: with the basics of gradient
+descent and execution written out by hand. It is a fixed `[784, 16, 16, 10]`
+feed-forward net with ReLU hidden layers, a softmax output, cross-entropy cost,
+and backprop term by term. On MNIST it reaches **~95.4% test accuracy after 10
+training iterations**. It is slow, but each step is there to inspect.
 
-**`backend/src/neuralsandbox/core.py`** — the generalisation. Once I'd struggled through
-gradient descent for one fixed network, it was clear the shape of the code barely
-matters — the _architecture_ does. So this is `Layer` / `Link` / `Network`:
+**`backend/src/neuralsandbox/core.py`** — the next step towards generalising that
+exercise. Working through one fixed network made it clearer that the architecture,
+rather than the surface shape of the code, is what matters. This is where
+`Layer` / `Link` / `Network` live:
 
 - a network is an arbitrary DAG of layers, not just a stack
 - the forward pass runs in topological order
@@ -67,6 +73,14 @@ abstracts away just the parts that were boilerplate to begin with — and nothin
 else.
 
 **Next:** connect the editable pipeline to network execution and training.
+
+## Pending
+
+The next substantial work is training and tracing execution through a network:
+connecting the editor's pipeline to the core, making each pass visible, and
+showing how values and gradients move through the graph. The UI is still being
+iterated on and should be treated as work in progress rather than a finished
+builder.
 
 ## Layout
 
