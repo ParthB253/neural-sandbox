@@ -8,7 +8,7 @@ import numpy as np
 from PIL import Image
 
 from ..nodes import Node, NodeConfig, NodeInfo, NodePort
-from .data import DataTable
+from .data import DataTable, FieldSchema
 from .transforms import DataTransform
 
 
@@ -48,6 +48,15 @@ class DataSource(Node, ABC):
             data = transform.apply(data)
         self.data = data
         return data
+
+    @property
+    def schema(self) -> dict[str, FieldSchema]:
+        """Shapes and dtypes after transforms; axis zero is never a feature."""
+        return (self.data if self.data is not None else self.load()).schema
+
+    @property
+    def sample_count(self) -> int:
+        return (self.data if self.data is not None else self.load()).sample_count
 
     @abstractmethod
     def _load(self) -> DataTable:

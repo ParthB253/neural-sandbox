@@ -1,10 +1,13 @@
 import { useContext } from "react";
 import { Handle, Position, type NodeProps } from "@xyflow/react";
 import { EditorContext } from "./editorContext";
+import type { ProjectAnalysis } from "./network";
 
 export default function LayerNode({ id, data, selected }: NodeProps) {
   const { act, disabled } = useContext(EditorContext);
   const isSource = data.kind === "dataset";
+  const schema = data.sourceSchema as ProjectAnalysis["datasets"][string] | undefined;
+  const issues = data.issues as string[] | undefined;
   return (
     <div className={`layer-node${selected ? " layer-node--selected" : ""}`}>
       {!isSource && (
@@ -35,12 +38,17 @@ export default function LayerNode({ id, data, selected }: NodeProps) {
               <span className="layer-node__key">transforms</span>
               <span>{String(data.transforms)}</span>
             </div>
+            {schema && <>
+              <small>{schema.sample_count.toLocaleString()} examples</small>
+              {Object.entries(schema.fields).slice(0, 4).map(([name, field]) =>
+                <small key={name}>{name}: {field.sample_shape.join(" × ") || "scalar"} · {field.dtype}</small>)}
+            </>}
           </>
         ) : (
           <>
             <div className="layer-node__row">
               <span className="layer-node__key">size</span>
-              <span>{String(data.size)}</span>
+              <span>{String(data.size)}{data.sizeMode === "auto" ? " (auto)" : ""}</span>
             </div>
             <div className="layer-node__row">
               <span className="layer-node__key">activation</span>
@@ -48,6 +56,7 @@ export default function LayerNode({ id, data, selected }: NodeProps) {
             </div>
           </>
         )}
+        {issues?.length ? <small className="execution-error" title={issues.join("; ")}>{issues[0]}</small> : null}
       </div>
       <Handle
         type="source"

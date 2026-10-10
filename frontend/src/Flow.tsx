@@ -15,6 +15,7 @@ import "@xyflow/react/dist/style.css";
 import LayerNode from "./LayerNode";
 import EditorDialog, { type DialogState } from "./EditorDialog";
 import NetworkHeader from "./NetworkHeader";
+import ExecutionPanel from "./ExecutionPanel";
 import { EditorContext, type NodeAction } from "./editorContext";
 import {
   clearCanvas,
@@ -25,6 +26,7 @@ import {
   type ProjectSpec,
   type StoredFile,
   type NetworkSummary,
+  type ProjectAnalysis,
 } from "./network";
 
 const nodeTypes = { layer: LayerNode };
@@ -55,7 +57,7 @@ function toGraph(project: ProjectSpec): { nodes: Node[]; edges: Edge[] } {
             : !outgoing.has(layer.id)
               ? "Output"
               : "Hidden",
-          size: layer.size,
+          size: layer.size_mode === "auto" ? "Resolving…" : layer.size,
           activation: layer.activation,
         },
       })),
@@ -79,7 +81,8 @@ export default function Flow() {
   const [files, setFiles] = useState<StoredFile[]>([]);
   const [nodes, setNodes, onNodesChange] = useNodesState<Node>([]);
   const [edges, setEdges, onEdgesChange] = useEdgesState<Edge>([]);
-  const [tab, setTab] = useState<"files" | "graph">("files");
+  const [tab, setTab] = useState<"files" | "graph" | "run">("files");
+  const [analysis, setAnalysis] = useState<ProjectAnalysis | null>(null);
   const [dialog, setDialog] = useState<DialogState | null>(null);
   const [busy, setBusy] = useState(true);
   const [ready, setReady] = useState(false);
@@ -98,6 +101,28 @@ export default function Flow() {
         project.datasets.length > 0;
 
   useEffect(() => {
+    if (!ready) return;
+    let active = true;
+    const timer = window.setTimeout(() => {
+      void request<ProjectAnalysis>("/project/analysis", "POST", project).then((value) => {
+        if (!active) return;
+        setAnalysis(value);
+        setEdges((current) => current.map((edge) => ({ ...edge,
+          label: value.links[edge.id]?.weight_shape.map((size) => size ?? "?").join(" × "),
+        })));
+        setNodes((current) => current.map((node) => ({ ...node, data: {
+          ...node.data,
+          size: value.layers[node.id]?.size ?? (node.data.kind === "layer" ? "Unresolved" : node.data.size),
+          sizeMode: value.layers[node.id]?.size_mode,
+          sourceSchema: value.datasets[node.id],
+          issues: value.issues.filter((issue) => issue.node_id === node.id).map((issue) => issue.message),
+        } })));
+      }).catch(() => { if (active) setAnalysis(null); });
+    }, 200);
+    return () => { active = false; window.clearTimeout(timer); };
+  }, [project, ready, setNodes, setEdges]);
+
+  useEffect(() => {
     document.title = `${project.network.title || "Untitled network"} · NeuralSandbox`;
   }, [project.network.title]);
   useEffect(() => {
@@ -113,6 +138,7 @@ export default function Flow() {
   const apply = useCallback(
     (next: ProjectSpec) => {
       setProject(next);
+      setAnalysis(null);
       const graph = toGraph(next);
       setNodes(graph.nodes);
       setEdges(graph.edges);
@@ -412,8 +438,13 @@ export default function Flow() {
             >
               Graph <span>{nodes.length}</span>
             </button>
+            <button id="run-tab" role="tab" aria-selected={tab === "run"} aria-controls="run-panel"
+              onClick={() => setTab("run")}>Run</button>
           </div>
-          {tab === "files" ? (
+            <div hidden={tab !== "run"} id="run-panel" className="sidebar-panel" role="tabpanel" aria-labelledby="run-tab">
+              <ExecutionPanel project={project} analysis={analysis} disabled={disabled} />
+            </div>
+          {tab === "run" ? null : tab === "files" ? (
             <section
               className="sidebar-panel"
               id="files-panel"
@@ -566,7 +597,7 @@ export default function Flow() {
                     >
                       {item.id}
                       <small>
-                        {item.size} units · {item.activation}
+                        {analysis?.layers[item.id]?.size ?? (item.size_mode === "auto" ? "Unresolved" : item.size)} units · {item.activation}
                       </small>
                     </button>
                     <button
@@ -750,6 +781,7 @@ export default function Flow() {
           <EditorDialog
             dialog={dialog}
             project={project}
+            analysis={analysis}
             files={files}
             busy={busy}
             error={error}

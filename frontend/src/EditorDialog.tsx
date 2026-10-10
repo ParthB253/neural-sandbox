@@ -12,6 +12,7 @@ import {
   type StoredFile,
   type DatasetSpec,
   type TransformSpec,
+  type ProjectAnalysis,
 } from "./network";
 
 export type DialogState =
@@ -39,6 +40,7 @@ interface Props {
   save: (project: ProjectSpec) => Promise<boolean>;
   upload: (files: FileList) => Promise<StoredFile[]>;
   close: () => void;
+  analysis: ProjectAnalysis | null;
 }
 const makeId = (prefix: string) =>
   `${prefix}-${crypto.randomUUID().slice(0, 6)}`;
@@ -96,6 +98,7 @@ export default function EditorDialog({
   save,
   upload,
   close,
+  analysis,
 }: Props) {
   const dataset =
     "id" in dialog
@@ -142,6 +145,17 @@ export default function EditorDialog({
         ? dialog.parent
         : undefined;
   const fromDataset = project.datasets.some((item) => item.id === sourceId);
+  const [sizeMode, setSizeMode] = useState<"manual" | "auto">(
+    layer?.size_mode ?? (fromDataset ? "auto" : "manual"),
+  );
+  const fields = sourceId ? analysis?.datasets[sourceId]?.fields : undefined;
+  const inferredSize = layer
+    ? analysis?.layers[layer.id]?.size
+    : fields?.[field]?.sample_shape.length === 0
+      ? 1
+      : fields?.[field]?.sample_shape.length === 1
+        ? fields[field].sample_shape[0]
+        : undefined;
   const title =
     dialog.kind === "confirm"
       ? dialog.title
@@ -225,6 +239,7 @@ export default function EditorDialog({
         const item = {
           id: id.trim(),
           size,
+          size_mode: sizeMode,
           activation,
           pos: layer?.pos ?? nextPosition(project, dialog.parent),
         };
@@ -385,13 +400,22 @@ export default function EditorDialog({
                   )}
                   <div className="form-row">
                     <label>
+                      Sizing
+                      <select value={sizeMode} onChange={(event) => setSizeMode(event.target.value as "auto" | "manual")}>
+                        <option value="auto">Auto from input feed</option>
+                        <option value="manual">Manual</option>
+                      </select>
+                    </label>
+                    <label>
                       Size
                       <input
                         type="number"
                         min="1"
                         step="1"
                         required
-                        value={size}
+                        disabled={sizeMode === "auto"}
+                        value={sizeMode === "auto" ? (inferredSize ?? "") : size}
+                        placeholder="Awaiting valid input feed"
                         onChange={(event) =>
                           setSize(Number(event.target.value))
                         }
@@ -458,9 +482,13 @@ export default function EditorDialog({
                       Field
                       <input
                         required
+                        list="source-fields"
                         value={field}
                         onChange={(event) => setField(event.target.value)}
                       />
+                      <datalist id="source-fields">
+                        {Object.keys(fields ?? {}).map((name) => <option key={name} value={name} />)}
+                      </datalist>
                     </label>
                     <label>
                       Use as
@@ -479,6 +507,9 @@ export default function EditorDialog({
                     Use a CSV column or JSON field name; NumPy and IDX files use
                     “value”.
                   </small>
+                  {fields?.[field] && <small>
+                    {fields[field].dtype} · sample shape {fields[field].sample_shape.join(" × ") || "scalar"}
+                  </small>}
                 </div>
               )}
               {dialog.kind === "transforms" && (

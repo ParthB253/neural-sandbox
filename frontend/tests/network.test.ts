@@ -2,6 +2,7 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import {
   clearCanvas,
+  computationKey,
   connectionError,
   connections,
   emptyProject,
@@ -89,4 +90,18 @@ test("branches are placed right of their parent without overlapping siblings", (
   const [x, y] = nextPosition(project, "a");
   assert.equal(x, 660);
   assert.ok(y >= 180);
+});
+
+test("result identity follows computation changes but ignores layout and title", () => {
+  const next = structuredClone(project);
+  next.network.title = "Renamed";
+  next.network.layers[0].pos = [1200, 200];
+  next.datasets[0].pos = [600, 100];
+  next.network.layers[0].size_mode = "manual";
+  assert.equal(computationKey(next), computationKey(project));
+  next.network.layers[0].size_mode = "auto";
+  assert.notEqual(computationKey(next), computationKey(project));
+  const transformed = structuredClone(project);
+  transformed.datasets[0].transforms.push({ type: "flatten", field: "value" });
+  assert.notEqual(computationKey(transformed), computationKey(project));
 });

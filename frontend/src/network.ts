@@ -2,6 +2,7 @@
 export interface LayerSpec {
   id: string;
   size: number;
+  size_mode?: "manual" | "auto";
   activation: string;
   pos: [number, number];
 }
@@ -63,6 +64,40 @@ export interface StoredFile {
   name: string;
   size: number;
   path: string;
+}
+
+export interface ProjectAnalysis {
+  project_revision: string;
+  datasets: Record<string, {
+    sample_count: number;
+    fields: Record<string, { dtype: string; sample_shape: number[] }>;
+  }>;
+  layers: Record<string, { size: number | null; size_mode: "auto" | "manual" }>;
+  links: Record<string, { weight_shape: (number | null)[] }>;
+  issues: { node_id: string; message: string }[];
+}
+export interface ForwardResult {
+  execution_id: string;
+  project_revision: string;
+  model_revision: string;
+  data_revision: string;
+  sample_index: number;
+  seed: number;
+  trained: boolean;
+  outputs: Record<string, { values: number[]; shape: number[]; activation: string; activation_applied: boolean }>;
+}
+
+export function computationKey(project: ProjectSpec): string {
+  return JSON.stringify({
+    network: {
+      id: project.network.id,
+      layers: project.network.layers.map((layer) => ({ id: layer.id, size: layer.size,
+        size_mode: layer.size_mode ?? "manual", activation: layer.activation })),
+      links: project.network.links,
+    },
+    datasets: project.datasets.map((dataset) => ({ id: dataset.id, source: dataset.source, transforms: dataset.transforms })),
+    feeds: project.feeds,
+  });
 }
 
 const API = import.meta.env?.VITE_API_URL ?? "http://localhost:8000";

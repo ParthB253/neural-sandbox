@@ -14,6 +14,9 @@ from pydantic import BaseModel, Field, field_validator, model_validator
 class LayerSpec(BaseModel):
     id: str = Field(min_length=1)
     size: int = Field(gt=0)
+    # In Auto mode, size retains the last manual choice; the feed determines
+    # runtime width. Derived shapes never overwrite the editable document.
+    size_mode: Literal["manual", "auto"] = "manual"
     # Name only; the Python side maps it to an (activation, d_activation) pair.
     activation: str = "relu"
     # Canvas position, owned by the UI. The math never looks at it.

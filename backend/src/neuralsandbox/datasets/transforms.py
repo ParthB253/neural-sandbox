@@ -55,7 +55,8 @@ class Flatten(DataTransform):
     def apply(self, data: DataTable) -> DataTable:
         values = _field(data, self.field)
         # Axis zero identifies examples and must survive every field transform.
-        return data.replace_field(self.field, values.reshape(len(values), -1))
+        width = int(np.prod(values.shape[1:]))
+        return data.replace_field(self.field, values.reshape(len(values), width))
 
 
 class Cast(DataTransform):

@@ -875,3 +875,12 @@ h3 {
     padding: 6px;
   }
 }
+.execution-panel { padding-bottom: 24px; }
+.execution-panel .form-row { flex-wrap: wrap; }
+.execution-panel input { width: 100%; box-sizing: border-box; }
+.execution-panel pre { white-space: pre-wrap; overflow-wrap: anywhere; font-size: 12px; }
+.execution-panel dd { margin-left: 0; overflow-wrap: anywhere; font-size: 11px; }
+.execution-panel dt { margin-top: 10px; }
+.execution-issues { padding-left: 18px; font-size: 12px; }
+.execution-error { color: #b42318; }
+.sample-controls { display: flex; flex-wrap: wrap; gap: 6px; margin: 12px 0; }

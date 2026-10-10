@@ -60,8 +60,9 @@ rather than the surface shape of the code, is what matters. This is where
 
 `Network.train` is deliberately bare: it applies the gradients directly, without
 an optimiser hiding the mechanics. The visual editor supports topology, data
-sources, connections, transforms, and named network documents; it does not run
-the pipeline or train a network yet.
+sources, connections, transforms, and named network documents. It can derive
+input shapes and execute a single forward pass; training is not wired into the
+editor yet.
 
 ## Where it's going
 
@@ -72,7 +73,7 @@ Optimiser details are there if you open them and folded away if you don't. It
 abstracts away just the parts that were boilerplate to begin with — and nothing
 else.
 
-**Next:** connect the editable pipeline to network execution and training.
+**Next:** capture inspectable execution traces and connect training to the editor.
 
 ## Pending
 
@@ -165,5 +166,45 @@ Uploaded file bytes and metadata also persist across restarts.
 The backend must be running to edit. Failed saves show an error and preserve the
 previous disk snapshot. Set `VITE_API_URL` if the API is not at
 `http://localhost:8000`.
-This remains a topology/configuration editor: transforms and training are not
-executed by the browser.
+Python executes transforms and forward passes; the browser presents their results.
+Training is not yet available in the editor.
+
+## Shapes and forward execution (v0)
+
+Sources expose each transformed field's dtype, sample shape and example count.
+Adding a layer from a source defaults to **Auto from input feed** sizing: flattened
+MNIST images resolve to 784 neurons. Auto sizing follows changes to the source,
+field and transforms; a weighted connection to a hidden layer does not determine
+that layer's width. Existing saved layers default to Manual sizing. Scalar numeric
+fields supply one feature; matrix/image fields need Flatten before a feed.
+
+The canvas shows resolved widths and weight-matrix dimensions. The **Run** tab
+lets you select an example by zero-based index, Previous/Next or Random, choose
+a weight seed, and run a forward pass. Outputs use untrained weights, recreated
+deterministically from the seed for each request. Input layers take their feed
+values directly; their activation is not applied. Hidden/output activations support
+identity, ReLU, sigmoid, tanh and numerically stable softmax. Multiple weighted
+predecessors contribute by addition, as in the core.
+
+`POST /project/analysis` accepts a `ProjectSpec` and returns source schemas,
+resolved layer widths, link shapes and node/connection-specific issues.
+`POST /executions/forward` accepts `{project, sample_index, seed}` and returns
+output values, resolved shapes, an execution ID, and project/model/data revisions.
+Forward execution does not mutate the draft or save weights. Node positions and
+the document title do not affect computation revisions. Data revisions identify
+the transformed input data; model revisions identify the configuration and actual
+parameters. Results from an earlier graph configuration are labelled in the UI.
+
+Every root needs one input feed. Multiple input feeds into one layer, or an input
+feed combined with weighted predecessors, are rejected. Input sources must have
+equal example counts and aligned rows; matching counts cannot establish semantic
+alignment, so pairing rows correctly is the user's responsibility. Missing fields,
+non-numeric feeds, incompatible manual widths, empty datasets, invalid indices,
+unsupported activations, and non-finite inputs/results produce actionable errors.
+The v0 runtime is limited to two million parameters and 100,000 returned output
+values; the UI initially displays the first 50 values per output.
+
+Analysis and execution currently load and transform data on each request, reusing
+the loaded source within that request. No cross-request dataset cache or streaming
+loader is implemented yet. Computation completes before returning a result;
+traces, lazy trace retrieval, playback, training and checkpoints are future work.

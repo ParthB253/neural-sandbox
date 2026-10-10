@@ -9,9 +9,11 @@ from .nodes import Node, NodeInfo
 from .schemas import DatasetSpec, FeedSpec, LayerSpec, LinkSpec, NetworkSpec, ProjectSpec
 from .uploads import router as uploads_router
 from . import network_store
+from .execution import router as execution_router
 
 app = FastAPI(title="NeuralSandbox")
 app.include_router(uploads_router)
+app.include_router(execution_router)
 
 # Vite (5173) and CRA-style (3000) dev servers.
 app.add_middleware(
