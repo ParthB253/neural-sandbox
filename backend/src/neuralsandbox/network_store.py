@@ -66,6 +66,10 @@ def write_network(project: ProjectSpec) -> None:
 
 def file_is_referenced(file_path: str) -> bool:
     """Protect shared files even when the network using them is not open."""
+    from .training import manager
+    with manager.lock:
+        if any(str(dataset['source']['path']) == file_path for run in manager.runs.values() for dataset in run['project']['datasets']):
+            return True
     if not NETWORK_DIR.exists():
         return False
     for path in NETWORK_DIR.glob("*.json"):

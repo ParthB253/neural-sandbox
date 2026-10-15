@@ -1,3 +1,4 @@
+from collections.abc import Callable
 import numpy as np
 from collections import defaultdict
 
@@ -23,27 +24,30 @@ class Layer(Node):
     )
 
     def __init__(self, activation, d_activation, compounder=SUM_AX_0, d_compounder=D_SUM_AX_0,
-                 size: int=0, from_array: np.ndarray=NP_EMPTY, bias: np.ndarray=NP_EMPTY) -> None:
+                 size: int=0, from_array: np.ndarray=NP_EMPTY, bias: np.ndarray=NP_EMPTY, activation_vjp: Callable[[np.ndarray, np.ndarray], np.ndarray] | None = None, initialize: bool = True) -> None:
         if len(from_array.shape) == 1:
             self.values = from_array.copy().reshape(1, -1)
         elif size <= 0:
             raise ValueError("Layer must be pre-populated with a flat list / array or size must be positive")
         else:
-            self.values = np.random.rand(1, size) - 0.5
+            self.values = np.zeros((1, size))
 
-        bias_shape = (1, self.size())
-        if bias.shape:
+        bias_shape = self.bias_shape = (1, self.size())
+        if not initialize:
+            self.bias = None
+        elif bias.shape:
             if bias.shape != bias_shape:
                 raise ValueError(f"bias dimension does not match {bias_shape}: {bias.shape}")
             self.bias = bias.copy()
         else:
-            self.bias = np.random.rand(*bias_shape) - 0.5
+            self.bias = np.zeros(bias_shape)
 
         # activation / compounder are the forward ops; d_* are their local gradients.
         #   d_activation(pre_activation) -> elementwise derivative, same shape
         #   d_compounder(contribs, g)    -> list of dL/dc_i given g = dL/d(compounder output)
         self.activation = activation
         self.d_activation = d_activation
+        self.activation_vjp = activation_vjp
         self.compounder = compounder
         self.d_compounder = d_compounder
 
@@ -61,6 +65,8 @@ class Layer(Node):
         '''
         if not self.from_links:
             return self.values
+        assert self.bias is not None, "Layer parameters must be initialized before computation"
+        assert all(link.weights is not None for link in self.from_links), "Connection weights must be initialized before computation"
         self.pre_activation = self.bias + self.compounder(
             [link.from_layer.values @ link.weights for link in self.from_links]
         )
@@ -72,9 +78,9 @@ class Layer(Node):
         return self.values.shape[1]
 
 
-    def connect_to(self, other: "Layer", weights: np.ndarray=NP_EMPTY) -> "Link":
+    def connect_to(self, other: "Layer", weights: np.ndarray=NP_EMPTY, initialize: bool = True) -> "Link":
         '''Build a weighted link from this layer to `other`, registered on both.'''
-        return Link(self, other, weights)
+        return Link(self, other, weights, initialize=initialize)
 
 
     def __str__(self) -> str:
@@ -82,10 +88,12 @@ class Layer(Node):
 
 
 class Link:
-    def __init__(self, from_layer: Layer, to_layer: Layer, weights: np.ndarray=NP_EMPTY) -> None:
-        weights_shape = (from_layer.size(), to_layer.size())
+    def __init__(self, from_layer: Layer, to_layer: Layer, weights: np.ndarray=NP_EMPTY, initialize: bool = True) -> None:
+        weights_shape = self.weight_shape = (from_layer.size(), to_layer.size())
 
-        if weights.shape:
+        if not initialize:
+            self.weights = None
+        elif weights.shape:
             if weights.shape != weights_shape:
                 raise ValueError(f"weights dimension does not match {weights_shape}: {weights.shape}")
             self.weights = weights.copy()
@@ -101,7 +109,7 @@ class Link:
 
 
     def __str__(self) -> str:
-        return f"Link of size {self.weights.shape}"
+        return f"Link of size {self.weight_shape}"
 
 
 class Network:
@@ -175,8 +183,8 @@ class Network:
             self.inputs, self.outputs = self.calculate_io()
 
 
-    def connect(self, from_layer: Layer, to_layer: Layer, weights: np.ndarray=NP_EMPTY) -> Link:
-        link = from_layer.connect_to(to_layer, weights)
+    def connect(self, from_layer: Layer, to_layer: Layer, weights: np.ndarray=NP_EMPTY, initialize: bool = True) -> Link:
+        link = from_layer.connect_to(to_layer, weights, initialize=initialize)
         self.inputs, self.outputs = self.calculate_io()
         return link
 
@@ -189,12 +197,15 @@ class Network:
 
         return [o.values for o in self.outputs]
 
-    def backprop(self, input: dict[Layer, np.ndarray], real_outputs: dict[Layer, np.ndarray]):
+    def backprop(self, input: dict[Layer, np.ndarray], real_outputs: dict[Layer, np.ndarray],
+                 output_delta: Callable[[Layer, np.ndarray], np.ndarray | None] | None = None):
         '''Forward once, then reverse-topo backward. Returns (cost, grad_weights,
         grad_bias); it computes gradients, it does not apply them.
 
         d_cost mirrors cost: d_cost(preds, targets) -> list of dL/da, one per
         output layer, each shaped like that layer's values.
+        output_delta optionally supplies a fused dL/dz for an output and its
+        targets, bypassing its activation derivative. Return None to use d_cost.
         '''
         for l in self.inputs:
             if l not in input:
@@ -228,7 +239,9 @@ class Network:
                 continue  # input layer: nothing feeds it, nothing to fit
 
             # dL/da -> dL/dz through the (elementwise) activation. This is delta_l.
-            delta = grad_a[layer] * layer.d_activation(layer.pre_activation)  # (1, n_layer)
+            fused_delta = output_delta(layer, real_outputs[layer]) if output_delta and layer in real_outputs else None
+            delta = fused_delta if fused_delta is not None else (layer.activation_vjp(layer.pre_activation, grad_a[layer]) if layer.activation_vjp
+                     else grad_a[layer] * layer.d_activation(layer.pre_activation))  # (1, n_layer)
             grad_bias[layer] = delta.sum(axis=0, keepdims=True)              # z = bias + s
 
             # dL/dz == dL/ds; split it across the incoming contributions via the

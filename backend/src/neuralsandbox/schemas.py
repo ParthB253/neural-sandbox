@@ -8,7 +8,7 @@ from pathlib import Path
 from typing import Annotated, Literal
 from uuid import UUID, uuid4
 
-from pydantic import BaseModel, Field, field_validator, model_validator
+from pydantic import BaseModel, Field, StrictInt, TypeAdapter, field_validator, model_validator
 
 
 class LayerSpec(BaseModel):
@@ -139,6 +139,12 @@ class ScaleSpec(BaseModel):
 JsonScalar = str | int | float | bool | None
 
 
+class MappingSpec(BaseModel):
+    type: Literal["mapping"] = "mapping"
+    field: str
+    mapping: dict[str, StrictInt | Annotated[float, Field(strict=True, allow_inf_nan=False)]] = Field(min_length=1)
+
+
 class OneHotSpec(BaseModel):
     type: Literal["one_hot"] = "one_hot"
     field: str
@@ -151,7 +157,7 @@ class SelectFieldsSpec(BaseModel):
 
 
 TransformSpec = Annotated[
-    FlattenSpec | CastSpec | ScaleSpec | OneHotSpec | SelectFieldsSpec,
+    FlattenSpec | CastSpec | ScaleSpec | MappingSpec | OneHotSpec | SelectFieldsSpec,
     Field(discriminator="type"),
 ]
 
@@ -159,7 +165,6 @@ TransformSpec = Annotated[
 class DatasetSpec(BaseModel):
     id: str = Field(min_length=1)
     source: SourceSpec
-    transforms: list[TransformSpec] = Field(default_factory=list)
     # Canvas position is UI state, as it is for LayerSpec.
     pos: tuple[float, float] = (0.0, 0.0)
 
@@ -170,12 +175,53 @@ class FeedSpec(BaseModel):
     field: str = Field(min_length=1)
     layer: str = Field(min_length=1)
     role: Literal["input", "target"] = "input"
+    transforms: list[TransformSpec] = Field(default_factory=list)
+
+
+class TrainingSpec(BaseModel):
+    learning_rate: float = Field(default=0.01, gt=0, allow_inf_nan=False)
+    initialization: Literal["uniform", "he_normal", "xavier_normal"] = "xavier_normal"
+    epochs: int = Field(default=10, ge=1, le=10000)
+    batch_size: int = Field(default=128, ge=1, le=10000)
+    sampling: Literal["shuffle", "sequential"] = "shuffle"
+    seed: int = Field(default=42, ge=0, le=2**32 - 1)
+    validation_fraction: float = Field(default=0.1, ge=0, lt=1)
+    evaluation_every: int = Field(default=1, ge=1)
+    losses: dict[str, Literal["cross_entropy", "mse"]] = Field(default_factory=dict)
 
 
 class ProjectSpec(BaseModel):
+    training: TrainingSpec = Field(default_factory=TrainingSpec)
     network: NetworkSpec = Field(default_factory=NetworkSpec)
     datasets: list[DatasetSpec] = Field(default_factory=list)
     feeds: list[FeedSpec] = Field(default_factory=list)
+
+    @model_validator(mode="before")
+    @classmethod
+    def migrate_source_transforms(cls, value):
+        """Preserve saved pipelines while moving their ownership to each feed."""
+        if not isinstance(value, dict):
+            return value
+        datasets = value.get("datasets", [])
+        feeds = value.get("feeds", [])
+        if not isinstance(datasets, list) or not isinstance(feeds, list):
+            return value
+        legacy = {
+            item["id"]: TypeAdapter(list[TransformSpec]).validate_python(item["transforms"])
+            for item in datasets
+            if isinstance(item, dict) and isinstance(item.get("id"), str) and "transforms" in item
+        }
+        if not legacy:
+            return value
+        return {
+            **value,
+            "datasets": [{key: val for key, val in item.items() if key != "transforms"}
+                         if isinstance(item, dict) else item for item in datasets],
+            "feeds": [{**item, "transforms": [*legacy.get(item.get("dataset"), []),
+                                             *item.get("transforms", [])]}
+                      if isinstance(item, dict) and isinstance(item.get("transforms", []), list)
+                      else item for item in feeds],
+        }
 
     @model_validator(mode="after")
     def valid_project(self) -> "ProjectSpec":

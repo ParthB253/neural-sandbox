@@ -34,10 +34,6 @@ export default function LayerNode({ id, data, selected }: NodeProps) {
             <span className="node-file" title={String(data.filename)}>
               {String(data.filename)}
             </span>
-            <div className="layer-node__row">
-              <span className="layer-node__key">transforms</span>
-              <span>{String(data.transforms)}</span>
-            </div>
             {schema && <>
               <small>{schema.sample_count.toLocaleString()} examples</small>
               {Object.entries(schema.fields).slice(0, 4).map(([name, field]) =>
@@ -82,11 +78,6 @@ export default function LayerNode({ id, data, selected }: NodeProps) {
           <button disabled={disabled} onClick={() => act("edit", id)}>
             Edit
           </button>
-          {isSource && (
-            <button disabled={disabled} onClick={() => act("transforms", id)}>
-              Set transforms
-            </button>
-          )}
           <button
             className="danger"
             disabled={disabled}

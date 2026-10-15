@@ -28,6 +28,7 @@ export type TransformSpec =
   | { type: "flatten"; field: string }
   | { type: "cast"; field: string; dtype: string }
   | { type: "scale"; field: string; divisor: number }
+  | { type: "mapping"; field: string; mapping: Record<string, number> }
   | {
       type: "one_hot";
       field: string;
@@ -44,7 +45,6 @@ export interface DatasetSpec {
     extensions?: string[];
     mode?: string;
   };
-  transforms: TransformSpec[];
   pos: [number, number];
 }
 export interface FeedSpec {
@@ -53,8 +53,10 @@ export interface FeedSpec {
   layer: string;
   field: string;
   role: "input" | "target";
+  transforms: TransformSpec[];
 }
 export interface ProjectSpec {
+  training?: import("./training/useTraining").TrainingSettings;
   network: NetworkSpec;
   datasets: DatasetSpec[];
   feeds: FeedSpec[];
@@ -95,7 +97,7 @@ export function computationKey(project: ProjectSpec): string {
         size_mode: layer.size_mode ?? "manual", activation: layer.activation })),
       links: project.network.links,
     },
-    datasets: project.datasets.map((dataset) => ({ id: dataset.id, source: dataset.source, transforms: dataset.transforms })),
+    datasets: project.datasets.map((dataset) => ({ id: dataset.id, source: dataset.source })),
     feeds: project.feeds,
   });
 }
@@ -194,6 +196,7 @@ export function removeItems(
   edges: string[] = [],
 ): ProjectSpec {
   return {
+    ...project,
     network: {
       ...project.network,
       layers: project.network.layers.filter(

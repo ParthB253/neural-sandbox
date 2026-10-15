@@ -5,15 +5,15 @@ problems. Runtime objects never mutate the editable project.
 """
 import hashlib
 import json
-from uuid import uuid4
+from uuid import UUID, uuid4
 
 import numpy as np
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel, Field
+from typing import Literal
 
 from .core import Layer, Network
-from .datasets.factory import build_data_source
-from .datasets.feed import Feed
+from .datasets.factory import build_data_source, build_feed
 from .schemas import ProjectSpec
 
 router = APIRouter()
@@ -50,6 +50,7 @@ def _hash(value) -> str:
 def project_revision(project: ProjectSpec) -> str:
     # Moving a node or renaming a document does not change the computation.
     config = project.model_dump(mode="json")
+    config.pop("training", None)
     config["network"].pop("title")
     for node in config["network"]["layers"] + config["datasets"]:
         node.pop("pos")
@@ -80,16 +81,16 @@ def _prepare(project: ProjectSpec):
     for spec in project.feeds:
         if spec.dataset not in sources:
             continue
-        feed = Feed(sources[spec.dataset], spec.field, None, spec.role)
         try:
+            feed = build_feed(spec, sources[spec.dataset])
             width = feed.feature_count
-            dtype = np.dtype(feed.source.schema[feed.field].dtype)
+            dtype = np.dtype(feed.schema[feed.field].dtype)
             if width <= 0:
                 raise ValueError("A feed must contain at least one feature")
             if dtype.kind not in "biuf":
                 raise ValueError(f"Field {feed.field!r} is {dtype}; cast or encode it as numeric data")
             bindings[spec.id] = (feed, width)
-        except (ValueError, TypeError) as error:
+        except (ValueError, TypeError, KeyError, OverflowError) as error:
             issue(spec.id, str(error))
 
     for layer in project.network.layers:
@@ -112,7 +113,7 @@ def _prepare(project: ProjectSpec):
         if layer.activation not in ACTIVATIONS:
             issue(layer.id, f"Unsupported activation: {layer.activation}")
         sizes[layer.id] = width
-        report["layers"][layer.id] = {"size": width, "size_mode": layer.size_mode}
+        report["layers"][layer.id] = {"size": width, "size_mode": layer.size_mode, "bias_shape": [1, width]}
     for link in project.network.links:
         report["links"][link.id] = {"weight_shape": [sizes[link.source], sizes[link.target]]}
     return report, sources, bindings, sizes
@@ -124,6 +125,8 @@ def analyze(project: ProjectSpec):
 
 
 class ForwardRequest(BaseModel):
+    checkpoint_run_id: UUID | None = None
+    checkpoint: Literal["best", "latest"] = "latest"
     project: ProjectSpec
     sample_index: int = Field(default=0, ge=0)
     seed: int = Field(default=0, ge=0, le=2**32 - 1)
@@ -131,6 +134,8 @@ class ForwardRequest(BaseModel):
 
 @router.post("/executions/forward")
 def forward(request: ForwardRequest):
+    if request.checkpoint_run_id is None:
+        raise HTTPException(422, "Train the network before running a forward pass")
     report, sources, bindings, sizes = _prepare(request.project)
     if report["issues"]:
         raise HTTPException(422, detail="; ".join(f"{i['node_id']}: {i['message']}" for i in report["issues"]))
@@ -151,19 +156,39 @@ def forward(request: ForwardRequest):
         raise HTTPException(422, detail="Output is too large to return")
 
     # Constructors receive explicit arrays so they don't touch global RNG state.
-    rng = np.random.default_rng(request.seed)
     def no_backward(_):
         raise NotImplementedError("This runtime supports forward execution only")
     layers = {layer.id: Layer(ACTIVATIONS[layer.activation], no_backward,
-                             from_array=np.zeros(sizes[layer.id]), bias=np.zeros((1, sizes[layer.id])))
+                             from_array=np.zeros(sizes[layer.id]), initialize=False)
               for layer in spec.layers}
     network = Network(None, None, list(layers.values()))
     for link in spec.links:
         shape = (sizes[link.source], sizes[link.target])
-        network.connect(layers[link.source], layers[link.target], rng.uniform(-0.5, 0.5, shape))
-    for layer in spec.layers:
-        if layers[layer.id].from_links:
-            layers[layer.id].bias = rng.uniform(-0.5, 0.5, (1, sizes[layer.id]))
+        network.connect(layers[link.source], layers[link.target], initialize=False)
+    if request.checkpoint_run_id is not None:
+        from .training import manager, RUN_DIR
+        record = manager.get(str(request.checkpoint_run_id))
+        if manager.newest(record["network_id"])["id"] != str(request.checkpoint_run_id):
+            raise HTTPException(409, "Only the most recent run retains weights")
+        saved = ProjectSpec.model_validate(record["project"])
+        # Compare declared topology and resolved parameter dimensions below.
+        if [(l.id, l.activation) for l in saved.network.layers] != [(l.id, l.activation) for l in spec.layers] or saved.network.links != spec.links:
+            raise HTTPException(409, "Checkpoint architecture does not match this network")
+        path = RUN_DIR / str(request.checkpoint_run_id) / f"{request.checkpoint}.npz"
+        if not path.exists():
+            raise HTTPException(404, "Checkpoint is not available")
+        with np.load(path, allow_pickle=False) as weights:
+            for id, layer in layers.items():
+                value = weights[f"b:{id}"]
+                if value.shape != layer.bias_shape:
+                    raise HTTPException(409, "Checkpoint layer dimensions do not match")
+                layer.bias = value.copy()
+            for link_spec in spec.links:
+                link = next(l for l in layers[link_spec.source].to_links if l.to_layer is layers[link_spec.target])
+                value = weights[f"w:{link_spec.id}"]
+                if value.shape != link.weight_shape:
+                    raise HTTPException(409, "Checkpoint weight dimensions do not match")
+                link.weights = value.copy()
     for feed_spec in input_specs:
         feed = bindings[feed_spec.id][0]
         feed.layer = layers[feed_spec.layer]
@@ -193,7 +218,7 @@ def forward(request: ForwardRequest):
     return {"execution_id": str(uuid4()), "project_revision": report["project_revision"],
             "model_revision": _hash([report["project_revision"], model_hash.hexdigest()]),
             "data_revision": data_hash.hexdigest(), "sample_index": request.sample_index,
-            "seed": request.seed, "trained": False,
+            "seed": request.seed, "trained": request.checkpoint_run_id is not None,
             "outputs": {id: {"values": layers[id].values[0].tolist(), "shape": [sizes[id]],
                              "activation_applied": bool(layers[id].from_links),
                              "activation": next(layer.activation for layer in spec.layers if layer.id == id)}

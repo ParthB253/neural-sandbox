@@ -9,7 +9,6 @@ from PIL import Image
 
 from ..nodes import Node, NodeConfig, NodeInfo, NodePort
 from .data import DataTable, FieldSchema
-from .transforms import DataTransform
 
 
 class DataSource(Node, ABC):
@@ -27,8 +26,7 @@ class DataSource(Node, ABC):
             )
         super().__init_subclass__(**kwargs)
 
-    def __init__(self, transforms: tuple[DataTransform, ...] = ()) -> None:
-        self.transforms = transforms
+    def __init__(self) -> None:
         self.data: DataTable | None = None
 
     @classmethod
@@ -44,14 +42,12 @@ class DataSource(Node, ABC):
 
     def load(self) -> DataTable:
         data = self._load()
-        for transform in self.transforms:
-            data = transform.apply(data)
         self.data = data
         return data
 
     @property
     def schema(self) -> dict[str, FieldSchema]:
-        """Shapes and dtypes after transforms; axis zero is never a feature."""
+        """Raw shapes and dtypes; axis zero is never a feature."""
         return (self.data if self.data is not None else self.load()).schema
 
     @property
@@ -82,8 +78,8 @@ class IdxSource(DataSource):
         0x0E: np.dtype(">f8"),
     }
 
-    def __init__(self, path: str | Path, transforms: tuple[DataTransform, ...] = ()) -> None:
-        super().__init__(transforms)
+    def __init__(self, path: str | Path) -> None:
+        super().__init__()
         self.path = Path(path)
 
     def _load(self) -> DataTable:
@@ -114,8 +110,8 @@ class NpySource(DataSource):
         outputs=(NodePort("fields", "One output per loaded field", dynamic=True),),
     )
 
-    def __init__(self, path: str | Path, transforms: tuple[DataTransform, ...] = ()) -> None:
-        super().__init__(transforms)
+    def __init__(self, path: str | Path) -> None:
+        super().__init__()
         self.path = Path(path)
 
     def _load(self) -> DataTable:
@@ -140,8 +136,8 @@ class CsvSource(DataSource):
         outputs=(NodePort("fields", "One output per CSV column", dynamic=True),),
     )
 
-    def __init__(self, path: str | Path, transforms: tuple[DataTransform, ...] = (), **csv_options) -> None:
-        super().__init__(transforms)
+    def __init__(self, path: str | Path, **csv_options) -> None:
+        super().__init__()
         self.path = Path(path)
         self.csv_options = csv_options
 
@@ -166,8 +162,8 @@ class JsonSource(DataSource):
         outputs=(NodePort("fields", "One output per object field", dynamic=True),),
     )
 
-    def __init__(self, path: str | Path, transforms: tuple[DataTransform, ...] = ()) -> None:
-        super().__init__(transforms)
+    def __init__(self, path: str | Path) -> None:
+        super().__init__()
         self.path = Path(path)
 
     def _load(self) -> DataTable:
@@ -200,11 +196,10 @@ class ImageFolderSource(DataSource):
     def __init__(
         self,
         path: str | Path,
-        transforms: tuple[DataTransform, ...] = (),
         extensions: tuple[str, ...] = (".bmp", ".jpeg", ".jpg", ".png"),
         mode: str = "RGB",
     ) -> None:
-        super().__init__(transforms)
+        super().__init__()
         self.path = Path(path)
         self.extensions = tuple(extension.lower() for extension in extensions)
         self.mode = mode

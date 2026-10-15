@@ -6,9 +6,9 @@ from fastapi.testclient import TestClient
 
 from neuralsandbox.api import app
 from neuralsandbox.core import Layer
-from neuralsandbox.datasets.factory import build_data_source
+from neuralsandbox.datasets.factory import build_data_source, build_feed
 from neuralsandbox.datasets.feed import Feed
-from neuralsandbox.schemas import DatasetSpec
+from neuralsandbox.schemas import DatasetSpec, FeedSpec
 
 client = TestClient(app)
 
@@ -22,10 +22,10 @@ def project(tmp_path):
             {"id": "input", "size": 16, "size_mode": "auto", "activation": "identity"},
             {"id": "output", "size": 10, "activation": "softmax"},
         ], "links": [{"id": "weights", "source": "input", "target": "output"}]},
-        "datasets": [{"id": "images", "source": {"type": "npy", "path": str(path)},
-                      "transforms": [{"type": "flatten", "field": "value"},
-                                     {"type": "scale", "field": "value", "divisor": 255}]}],
-        "feeds": [{"id": "pixels", "dataset": "images", "field": "value", "layer": "input"}],
+        "datasets": [{"id": "images", "source": {"type": "npy", "path": str(path)}}],
+        "feeds": [{"id": "pixels", "dataset": "images", "field": "value", "layer": "input",
+                   "transforms": [{"type": "flatten", "field": "value"},
+                                  {"type": "scale", "field": "value", "divisor": 255}]}],
     }
 
 
@@ -35,9 +35,9 @@ def run(project, **kwargs):
 
 def test_source_feed_metadata_and_auto_mnist_shape(project):
     source = build_data_source(DatasetSpec.model_validate(project["datasets"][0]))
-    feed = Feed(source, "value", None, "input")
+    feed = build_feed(FeedSpec.model_validate(project["feeds"][0]), source)
     assert source.sample_count == 2
-    assert source.schema["value"].sample_shape == (784,)
+    assert source.schema["value"].sample_shape == (28, 28)
     assert feed.sample_shape == (784,)
     assert feed.feature_count == 784
     response = client.post("/project/analysis", json=project)
@@ -88,7 +88,7 @@ def test_invalid_example_index(project, index):
 @pytest.mark.parametrize("problem", ["matrix", "manual", "field", "file", "activation", "auto", "nonfinite", "empty"])
 def test_execution_reports_invalid_configuration(project, problem):
     if problem == "matrix":
-        project["datasets"][0]["transforms"] = []
+        project["feeds"][0]["transforms"] = []
     elif problem == "manual":
         project["network"]["layers"][0]["size_mode"] = "manual"
     elif problem == "field":
@@ -108,7 +108,7 @@ def test_execution_reports_invalid_configuration(project, problem):
 
 def test_scalar_feed_and_bounds(project):
     np.save(project["datasets"][0]["source"]["path"], np.array([2., 3.]))
-    project["datasets"][0]["transforms"] = []
+    project["feeds"][0]["transforms"] = []
     assert run(project).json()["layers"]["input"]["size"] == 1
     source = build_data_source(DatasetSpec.model_validate(project["datasets"][0]))
     layer = Layer(lambda x: x, lambda x: x, from_array=np.zeros(1), bias=np.zeros((1, 1)))
@@ -166,8 +166,50 @@ def test_execution_rejects_ambiguous_or_unusable_inputs(project, case, tmp_path)
         project["network"]["layers"][1]["size"] = 3_000_000
     elif case == "nonnumeric":
         np.save(project["datasets"][0]["source"]["path"], np.array(["hello", "world"]))
-        project["datasets"][0]["transforms"] = []
+        project["feeds"][0]["transforms"] = []
     elif case == "truncated":
         # A zero-dimensional array has no sample axis.
         np.save(project["datasets"][0]["source"]["path"], np.array(1))
     assert run(project).status_code == 422
+
+
+def test_csv_branches_have_independent_feed_pipelines(tmp_path):
+    path = tmp_path / "shared.csv"
+    path.write_text("pixels,label\n0,cat\n255,dog\n")
+    project = {
+        "network": {"layers": [
+            {"id": name, "size": 1, "size_mode": "auto", "activation": "identity"}
+            for name in ("scaled", "raw", "labels")
+        ]},
+        "datasets": [{"id": "shared", "source": {"type": "csv", "path": str(path)}}],
+        "feeds": [
+            {"id": "scaled-feed", "dataset": "shared", "layer": "scaled", "field": "pixels",
+             "transforms": [{"type": "select", "fields": ["pixels"]},
+                            {"type": "cast", "field": "pixels", "dtype": "float64"},
+                            {"type": "scale", "field": "pixels", "divisor": 255}]},
+            {"id": "raw-feed", "dataset": "shared", "layer": "raw", "field": "pixels",
+             "transforms": [{"type": "cast", "field": "pixels", "dtype": "float64"}]},
+            {"id": "label-feed", "dataset": "shared", "layer": "labels", "field": "label",
+             "transforms": [{"type": "one_hot", "field": "label"}]},
+        ],
+    }
+    analysis = client.post("/project/analysis", json=project).json()
+    assert analysis["issues"] == []
+    assert set(analysis["datasets"]["shared"]["fields"]) == {"pixels", "label"}
+    assert analysis["layers"]["labels"]["size"] == 2
+    response = run(project, sample_index=1)
+    assert response.status_code == 200
+    outputs = response.json()["outputs"]
+    assert outputs["scaled"]["values"] == [1.0]
+    assert outputs["raw"]["values"] == [255.0]
+    assert outputs["labels"]["values"] == [0.0, 1.0]
+    original_revision = response.json()["project_revision"]
+    project["feeds"][0]["transforms"][-1]["divisor"] = 510
+    changed = run(project, sample_index=1).json()
+    assert changed["project_revision"] != original_revision
+    assert changed["outputs"]["scaled"]["values"] == [0.5]
+    assert changed["outputs"]["raw"] == outputs["raw"]
+    project["feeds"][0]["transforms"][0]["fields"] = ["missing"]
+    issues = client.post("/project/analysis", json=project).json()["issues"]
+    assert any(issue["node_id"] == "scaled-feed" for issue in issues)
+    assert not any(issue["node_id"] in {"shared", "raw-feed", "label-feed", "raw", "labels"} for issue in issues)

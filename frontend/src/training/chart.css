@@ -1,0 +1,27 @@
+.training-chart{border:1px solid #dce4ee;border-radius:12px;padding:20px;background:#fff;min-width:0}
+.training-chart-heading{display:flex;align-items:flex-start;justify-content:space-between;gap:16px;flex-wrap:wrap}
+.training-chart-heading h2{margin:0 0 6px;font-size:18px}
+.training-chart-heading p,.training-chart-hint{margin:6px 0 14px;color:#65758a;font-size:13px;line-height:1.5}
+.training-chart-selectors,.training-chart-range{display:flex;align-items:flex-end;gap:10px;flex-wrap:wrap}
+.training-chart-selectors label,.training-chart-range label{display:grid;gap:5px;color:#53647b;font-size:12px;font-weight:600}
+.training-chart select,.training-chart input{min-height:36px;border:1px solid #d6dfeb;border-radius:6px;background:#fff;padding:7px 9px;color:#172a43;font:inherit}
+.training-chart-range{margin:16px 0 8px}.training-chart-range input{width:115px;max-width:100%;box-sizing:border-box}
+.training-chart-range button{min-height:36px}.training-chart-follow{font-size:12px;color:#65758a;margin:0 0 10px}
+.training-chart-plot{height:340px;width:100%;user-select:none;touch-action:pan-y}
+.training-chart-overview{height:65px;width:100%;margin-top:4px}
+.training-chart-empty{padding:50px 15px;text-align:center;color:#65758a;background:#f7f9fc;border-radius:8px}
+.training-chart .recharts-wrapper{font-size:12px;color:#65758a}.training-chart .recharts-surface{display:block}.training-chart .recharts-default-tooltip{border-radius:8px;box-shadow:0 4px 18px #172a4314;line-height:1.5}
+.training-chart input:focus-visible,.training-chart select:focus-visible,.training-chart button:focus-visible{outline:2px solid #3276d2;outline-offset:3px}
+@media(max-width:650px){.training-chart{padding:14px 8px}.training-chart-plot{height:290px}.training-chart-heading{padding:0 7px}.training-chart-range{padding:0 7px}.training-chart-range input{width:100px}.training-chart-hint{padding:0 7px}}
+
+.training-range-navigator{position:relative;height:54px;margin:0 20px 4px 78px}
+.training-range-track{position:absolute;top:15px;height:5px;width:100%;background:#e0e7ef;border-radius:4px}
+.training-range-track>div{position:absolute;height:100%;background:#8aafdF;border-radius:4px}
+.training-chart .training-range-navigator input{position:absolute;top:0;left:0;width:100%;height:30px;min-height:0;padding:0;margin:0;background:transparent;border:0;appearance:none;pointer-events:none}
+.training-range-navigator input::-webkit-slider-thumb{appearance:none;pointer-events:auto;width:13px;height:27px;border:1px solid #3276d2;background:#fff;border-radius:4px;cursor:ew-resize}
+.training-range-navigator input::-moz-range-thumb{pointer-events:auto;width:13px;height:27px;border:1px solid #3276d2;background:#fff;border-radius:4px;cursor:ew-resize}
+.training-range-labels{position:absolute;top:34px;left:0;right:0;display:flex;justify-content:space-between;font-size:11px;color:#65758a;pointer-events:none}
+
+.training-range-track{top:3px;height:27px;background:linear-gradient(transparent 11px,#e0e7ef 11px,#e0e7ef 16px,transparent 16px)}
+.training-range-track>div{background:linear-gradient(transparent 11px,#8aafdf 11px,#8aafdf 16px,transparent 16px);cursor:grab;touch-action:none}
+.training-range-track>div:active{cursor:grabbing}

@@ -1,22 +1,38 @@
 from ..core import Layer
 from .data_source import DataSource
+from .data import DataTable, FieldSchema
+from .transforms import DataTransform
 
 
 class Feed:
     """Bind one transformed field to an input layer or a training target."""
 
-    def __init__(self, source: DataSource, field: str, layer: Layer | None, role: str) -> None:
+    def __init__(self, source: DataSource, field: str, layer: Layer | None, role: str,
+                 transforms: tuple[DataTransform, ...] = ()) -> None:
         if role not in {"input", "target"}:
             raise ValueError("Feed role must be 'input' or 'target'")
         self.source = source
         self.field = field
         self.layer = layer
         self.role = role
+        self.transforms = transforms
+        self.data: DataTable | None = None
+
+    def load(self) -> DataTable:
+        data = self.source.data if self.source.data is not None else self.source.load()
+        for transform in self.transforms:
+            data = transform.apply(data)
+        self.data = data
+        return data
+
+    @property
+    def schema(self) -> dict[str, FieldSchema]:
+        return (self.data if self.data is not None else self.load()).schema
 
     @property
     def sample_shape(self) -> tuple[int, ...]:
         try:
-            return self.source.schema[self.field].sample_shape
+            return self.schema[self.field].sample_shape
         except KeyError as error:
             raise ValueError(f"Unknown field: {self.field}") from error
 
@@ -30,7 +46,7 @@ class Feed:
     def feed(self, sample_index: int = 0):
         if self.layer is None:
             raise ValueError("Feed must be bound to a runtime layer before execution")
-        data = self.source.data or self.source.load()
+        data = self.data if self.data is not None else self.load()
         try:
             values = data.fields[self.field]
         except KeyError as error:

@@ -25,12 +25,11 @@ const project: ProjectSpec = {
     {
       id: "data",
       source: { type: "csv", path: "/files/data.csv" },
-      transforms: [],
       pos: [0, 0],
     },
   ],
   feeds: [
-    { id: "feed", dataset: "data", layer: "a", field: "value", role: "input" },
+    { id: "feed", dataset: "data", layer: "a", field: "value", role: "input", transforms: [] },
   ],
 };
 
@@ -102,6 +101,6 @@ test("result identity follows computation changes but ignores layout and title",
   next.network.layers[0].size_mode = "auto";
   assert.notEqual(computationKey(next), computationKey(project));
   const transformed = structuredClone(project);
-  transformed.datasets[0].transforms.push({ type: "flatten", field: "value" });
+  transformed.feeds[0].transforms.push({ type: "flatten", field: "value" });
   assert.notEqual(computationKey(transformed), computationKey(project));
 });

@@ -117,3 +117,35 @@ def test_write_failure_preserves_saved_network_and_cleans_tempfile(monkeypatch):
     assert (network_store.NETWORK_DIR / f"{network_id}.json").read_bytes() == original
     assert list(network_store.NETWORK_DIR.glob("*.tmp")) == []
     assert client.get("/project").json()["network"]["title"] == "Untitled network"
+
+
+def test_legacy_saved_source_transforms_migrate_to_each_feed():
+    import copy
+    import json
+    from neuralsandbox.schemas import ProjectSpec
+
+    project = client.get("/project").json()
+    pipeline = [{"type": "flatten", "field": "value"},
+                {"type": "scale", "field": "value", "divisor": 255}]
+    project["datasets"] = [{"id": "data", "source": {"type": "npy", "path": "/unused.npy"},
+                            "transforms": pipeline}]
+    project["network"]["layers"] = [{"id": name, "size": 1} for name in ("a", "b")]
+    project["feeds"] = [{"id": name, "dataset": "data", "layer": name, "field": "value"}
+                        for name in ("a", "b")]
+    original = copy.deepcopy(project)
+    parsed = ProjectSpec.model_validate(project)
+    assert project == original
+    parsed.feeds[0].transforms.pop()
+    assert len(parsed.feeds[1].transforms) == 2
+    network_store.NETWORK_DIR.mkdir()
+    path = network_store.NETWORK_DIR / f'{project["network"]["id"]}.json'
+    path.write_text(json.dumps(project))
+    opened = client.post(f'/networks/{project["network"]["id"]}/open')
+    assert opened.status_code == 200
+    migrated = opened.json()
+    assert "transforms" not in migrated["datasets"][0]
+    for feed in migrated["feeds"]:
+        assert feed["transforms"] == pipeline
+    assert client.put(f'/networks/{project["network"]["id"]}', json=migrated).status_code == 200
+    assert client.get(f'/networks/{project["network"]["id"]}').json() == migrated
+    assert "transforms" not in json.loads(path.read_text())["datasets"][0]

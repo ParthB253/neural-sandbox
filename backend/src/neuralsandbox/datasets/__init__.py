@@ -2,8 +2,8 @@
 
 from .data_source import CsvSource, DataSource, IdxSource, ImageFolderSource, JsonSource, NpySource
 from .feed import Feed
-from .factory import build_data_source
-from .transforms import Cast, DataTransform, Flatten, OneHot, Scale, SelectFields
+from .factory import build_data_source, build_feed
+from .transforms import Cast, DataTransform, Flatten, Mapping, OneHot, Scale, SelectFields
 
 __all__ = [
     "Cast",
@@ -16,8 +16,10 @@ __all__ = [
     "ImageFolderSource",
     "JsonSource",
     "NpySource",
+    "Mapping",
     "OneHot",
     "Scale",
     "SelectFields",
     "build_data_source",
+    "build_feed",
 ]

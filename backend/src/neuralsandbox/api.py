@@ -11,7 +11,17 @@ from .uploads import router as uploads_router
 from . import network_store
 from .execution import router as execution_router
 
-app = FastAPI(title="NeuralSandbox")
+from contextlib import asynccontextmanager
+from .training import manager, router as training_router
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    manager.recover()
+    yield
+    manager.shutdown()
+
+app = FastAPI(title="NeuralSandbox", lifespan=lifespan)
+app.include_router(training_router)
 app.include_router(uploads_router)
 app.include_router(execution_router)
 
@@ -25,20 +35,22 @@ app.add_middleware(
 
 # Startup creates an empty draft. Saved networks are opened explicitly.
 _network = NetworkSpec()
+_training = ProjectSpec().training
 _datasets: dict[str, DatasetSpec] = {}
 _feeds: dict[str, FeedSpec] = {}
 
 
 @app.get("/project")
 def get_project() -> ProjectSpec:
-    return ProjectSpec(network=_network, datasets=list(_datasets.values()), feeds=list(_feeds.values()))
+    return ProjectSpec(network=_network, datasets=list(_datasets.values()), feeds=list(_feeds.values()), training=_training)
 
 
 @app.put("/project")
 def put_project(project: ProjectSpec) -> ProjectSpec:
     """Commit a canvas edit atomically, including its connections."""
-    global _network, _datasets, _feeds
+    global _network, _datasets, _feeds, _training
     _network = project.network
+    _training = project.training
     _datasets = {dataset.id: dataset for dataset in project.datasets}
     _feeds = {feed.id: feed for feed in project.feeds}
     return project

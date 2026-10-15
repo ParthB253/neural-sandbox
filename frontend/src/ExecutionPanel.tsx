@@ -1,11 +1,14 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { computationKey, request, type ForwardResult, type ProjectAnalysis, type ProjectSpec } from "./network";
 
 export default function ExecutionPanel({ project, analysis, disabled }: {
   project: ProjectSpec; analysis: ProjectAnalysis | null; disabled: boolean;
 }) {
+  const [checkpoint, setCheckpoint] = useState("");
+  const [checkpoints, setCheckpoints] = useState<{id:string;checkpoints:string[]}[]>([]);
+  useEffect(() => { let active = true; request<{id:string;checkpoints:string[]}[]>(`/training/runs?network_id=${project.network.id}`).then(value => {if(active) setCheckpoints(value)}).catch(() => {}); return () => {active=false}; }, [project.network.id]);
   const [index, setIndex] = useState(0);
-  const [seed, setSeed] = useState(0);
+
   const [running, setRunning] = useState(false);
   const [error, setError] = useState("");
   const [result, setResult] = useState<{ value: ForwardResult; key: string } | null>(null);
@@ -19,7 +22,7 @@ export default function ExecutionPanel({ project, analysis, disabled }: {
     setRunning(true);
     setError("");
     try {
-      const value = await request<ForwardResult>("/executions/forward", "POST", { project, sample_index: index, seed });
+      const value = await request<ForwardResult>("/executions/forward", "POST", { project, sample_index: index, ...(checkpoint ? {checkpoint_run_id:checkpoint.split("/")[0],checkpoint:checkpoint.split("/")[1]} : {}) });
       setResult({ value, key });
     } catch (error) {
       setError(error instanceof Error ? error.message : "Forward pass failed");
@@ -29,16 +32,13 @@ export default function ExecutionPanel({ project, analysis, disabled }: {
   }
   return <section className="execution-panel" aria-label="Forward execution">
     <h2>Forward pass</h2>
-    <p className="muted">Run one example with untrained weights. The seed keeps weights repeatable.</p>
+    <label>Weights<select value={checkpoint} onChange={e => setCheckpoint(e.target.value)}><option value="">Select a trained checkpoint</option>{checkpoints.flatMap(r => r.checkpoints.map(name => <option key={`${r.id}/${name}`} value={`${r.id}/${name}`}>{r.id.slice(0,8)} · {name}</option>))}</select></label>
     <div className="form-row">
       <label>Example index (from 0)
         <input type="number" min="0" max={count === undefined ? undefined : count - 1} step="1" value={index}
           onChange={(event) => setIndex(Number(event.target.value))} />
       </label>
-      <label>Weight seed
-        <input type="number" min="0" max={4294967295} step="1" value={seed}
-          onChange={(event) => setSeed(Number(event.target.value))} />
-      </label>
+
     </div>
     {count !== undefined && <p>{count.toLocaleString()} examples available. Input sources must have aligned rows.</p>}
     <div className="sample-controls">
@@ -50,13 +50,13 @@ export default function ExecutionPanel({ project, analysis, disabled }: {
       {analysis.issues.map((issue, i) => <li key={i}><strong>{issue.node_id}</strong>: {issue.message}</li>)}
     </ul>}
     <button className="primary" disabled={disabled || running || !Number.isSafeInteger(index) || index < 0 ||
-      !Number.isSafeInteger(seed) || seed < 0 || seed > 4294967295 || (count !== undefined && index >= count)}
+      !checkpoint || (count !== undefined && index >= count)}
       onClick={() => void run()}>{running ? "Running…" : "Run forward pass"}</button>
     {error && <p role="alert" className="execution-error">{error}</p>}
     {result && <div aria-live="polite">
       <h3>Result · example {result.value.sample_index}</h3>
       {result.key !== key && <p role="status">This result belongs to an earlier graph configuration.</p>}
-      <p className="muted">Untrained · seed {result.value.seed}</p>
+      <p className="muted">{result.value.trained ? "Trained checkpoint" : `Untrained · seed ${result.value.seed}`}</p>
       {Object.entries(result.value.outputs).map(([id, output]) => <div key={id}>
         <h3>{id} · {output.shape.join(" × ")} · {output.activation}</h3>
         {output.activation === "softmax" && output.activation_applied && <p>Predicted class index: {output.values.reduce((best, value, i, values) => value > values[best] ? i : best, 0)}</p>}

@@ -884,3 +884,20 @@ h3 {
 .execution-issues { padding-left: 18px; font-size: 12px; }
 .execution-error { color: #b42318; }
 .sample-controls { display: flex; flex-wrap: wrap; gap: 6px; margin: 12px 0; }
+
+.workspace-mode { position:absolute; top:18px; left:50%; transform:translateX(-50%); z-index:20; display:flex; padding:4px; background:white; border:1px solid #dce2ea; border-radius:9px; box-shadow:0 3px 12px #24354a14; }
+.workspace-mode button { border:0; padding:7px 24px; }
+.workspace-mode button[aria-pressed="true"] { background:#e8f1ff; color:#2d6dcc; }
+.training-page { height:100%; overflow:auto; padding:85px 32px 32px; background:#fff; }
+.training-heading { display:flex; justify-content:space-between; align-items:center; gap:20px; flex-wrap:wrap; }
+.training-page progress { width:100%; accent-color:#3276d2; }
+.training-page pre,.training-setup pre { white-space:pre-wrap; overflow-wrap:anywhere; }
+.training-setup label { display:block; margin:18px 0; }
+.training-setup input,.training-setup select { display:block; width:100%; margin-top:6px; }
+.training-feed { padding:12px 0; border-bottom:1px solid #e1e6ed; }
+.training-feed small { display:block; margin:4px 0; }
+.training-metrics { display:flex; gap:32px; flex-wrap:wrap; margin:24px 0; }
+.training-metrics strong { display:block; font-size:24px; }
+.training-setup input,.training-setup select { border:1px solid #d7dee8; border-radius:6px; padding:9px 10px; font:inherit; background:white; color:#253247; }
+.training-page details { margin-top:24px; }
+@media(max-width:800px) { .canvas-toolbar span { display:none; } .training-page { padding:85px 18px 24px; } }

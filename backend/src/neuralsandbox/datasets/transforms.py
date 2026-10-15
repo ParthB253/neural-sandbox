@@ -83,7 +83,36 @@ class Scale(DataTransform):
         return data.replace_field(self.field, _field(data, self.field) / self.divisor)
 
 
+class Mapping(DataTransform):
+    """Replace exact string values with user-defined numbers, preserving shape."""
+
+    transform_type = "mapping"
+
+    def __init__(self, field: str, mapping: dict[str, int | float]) -> None:
+        assert mapping, "Mapping requires at least one string/number pair"
+        assert all(isinstance(key, str) for key in mapping), "Mapping keys must be strings"
+        assert all(type(value) in (int, float) and np.isfinite(value) for value in mapping.values()), "Mapping values must be finite numbers"
+        self.field = field
+        self.mapping = dict(mapping)
+
+    def apply(self, data: DataTable) -> DataTable:
+        values = _field(data, self.field)
+        error_message = f"Unmapped value for field {self.field!r}"
+        try:
+            mapped = [self.mapping[value] for value in values.flat]
+        except (KeyError, TypeError) as error:
+            raise ValueError(f"{error_message}: {error.args[0]!r}") from error
+        result = np.asarray(mapped, dtype=np.float64).reshape(values.shape)
+        return data.replace_field(self.field, result)
+
+
 class OneHot(DataTransform):
+    """Encode string or numeric categories as columns numbered 0 through n-1.
+
+    Inferred categories are sorted unique values for deterministic column order.
+    Explicit categories retain their supplied order.
+    """
+
     transform_type = "one_hot"
 
     def __init__(self, field: str, categories: tuple[object, ...] | None = None) -> None:

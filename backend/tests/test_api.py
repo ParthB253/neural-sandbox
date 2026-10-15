@@ -98,7 +98,6 @@ def test_dataset_and_feed_crud_and_cascading_delete(tmp_path):
     dataset = {
         "id": "crud-dataset",
         "source": {"type": "npy", "path": str(tmp_path / "values.npy")},
-        "transforms": [{"type": "flatten", "field": "value"}],
         "pos": [-200, 0],
     }
     assert client.post("/datasets", json=dataset).status_code == 201
@@ -109,6 +108,7 @@ def test_dataset_and_feed_crud_and_cascading_delete(tmp_path):
 
     feed = {
         "id": "crud-feed",
+        "transforms": [{"type": "flatten", "field": "value"}],
         "dataset": "crud-dataset",
         "field": "value",
         "layer": "feed-input",

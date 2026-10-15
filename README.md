@@ -61,8 +61,7 @@ rather than the surface shape of the code, is what matters. This is where
 `Network.train` is deliberately bare: it applies the gradients directly, without
 an optimiser hiding the mechanics. The visual editor supports topology, data
 sources, connections, transforms, and named network documents. It can derive
-input shapes and execute a single forward pass; training is not wired into the
-editor yet.
+input shapes and execute a single forward pass; training is available in the editor’s Train workspace.
 
 ## Where it's going
 
@@ -141,9 +140,12 @@ pnpm test
   **Clear canvas** removes the graph while retaining uploaded files.
 - **Build from a node:** hover at its right edge (or focus/click its + button) to
   add a connected layer, connect to an existing layer, edit, or delete. Data
-  sources also offer an ordered transform editor. Both kinds of backend wiring
-  (feeds and links) appear as **connections**. A data-source connection lets you
-  choose a field and whether it supplies inputs or training targets.
+  source connections own their ordered transforms. Both kinds of backend wiring
+  (feeds and links) appear as **connections**. Edit a data-source connection to
+  choose its field, input/target role, and transform pipeline. Multiple feeds can
+  share one source while selecting and transforming different CSV columns.
+  Canvas feed labels show the field, role, and transform count. Older saved
+  source pipelines migrate to each outgoing feed when opened.
 - **Graph tab:** lists data sources, layers, and all connections. Select a node
   to locate it; edit or delete items here. Deleting a node removes its attached
   connections. Selected canvas items can also be removed with Delete/Backspace.
@@ -167,7 +169,7 @@ The backend must be running to edit. Failed saves show an error and preserve the
 previous disk snapshot. Set `VITE_API_URL` if the API is not at
 `http://localhost:8000`.
 Python executes transforms and forward passes; the browser presents their results.
-Training is not yet available in the editor.
+Training is available through the Build / Train switch.
 
 ## Shapes and forward execution (v0)
 
@@ -208,3 +210,44 @@ Analysis and execution currently load and transform data on each request, reusin
 the loaded source within that request. No cross-request dataset cache or streaming
 loader is implemented yet. Computation completes before returning a result;
 traces, lazy trace retrieval, playback, training and checkpoints are future work.
+
+
+## Training workspace
+
+Build / Train switches the right-hand pane and sidebar while retaining the header
+and graph viewport. Connect inputs and expected targets with the existing feed
+editor. Transforms and bindings save with the network, as do sampling, batch size,
+epochs, seed, loss, and validation settings. Corresponding rows must describe the
+same example; training checks counts and shapes but cannot infer row semantics.
+Use Preview paired examples to inspect the first three pairs.
+
+Train supports sequential or shuffled batches, mean squared error, and
+softmax cross-entropy, with an optional fixed validation holdout. Updates use the
+core's existing fixed unit gradient step. No optimiser or learning-rate selector
+is exposed; convergence is not guaranteed for arbitrary networks and data scales.
+
+One local worker owns the run and weights. SSE sends authoritative snapshots;
+REST controls pause, resume and cancellation at batch/evaluation boundaries.
+Closing the page does not cancel training. Large source loads cannot be interrupted
+mid-operation. Use one API server worker. Restarted runs are marked Interrupted;
+automatic restart-resume is not supported.
+
+Runs, configuration snapshots, split membership, sampled metric history (the live snapshot retains
+2,000 recent observations; `metrics.jsonl` retains the recorded history), and latest/best NumPy checkpoints persist under
+`workspaces/runs/` (`NEURALSANDBOX_RUN_DIR` overrides it). Run-referenced uploaded
+files are protected from deletion. The Build sidebar's Run tab can execute one
+example using a saved checkpoint or fresh seeded weights.
+
+`POST /training/runs` starts a run; `GET /training/runs?network_id=…` lists runs;
+`GET /training/runs/{id}` reads state; `/events` streams snapshots. POST to
+`/pause`, `/resume`, or `/cancel` controls that run. Reconnecting receives a fresh
+snapshot rather than replaying individual events. `POST /training/preview`
+validates the setup and returns paired examples.
+
+MNIST input feeds should include **Flatten → Scale (divisor 255)**; label feeds
+should use One hot. Scaling is explicit and never applied behind the editor's
+back. Large input ranges produce a training warning. Cross-entropy is computed
+from logits with log-softmax and a fused output gradient, so confidently wrong
+predictions retain a gradient even when softmax probabilities underflow to zero.
+Older runs/checkpoints retain their original results; start a fresh run after
+correcting input transforms.

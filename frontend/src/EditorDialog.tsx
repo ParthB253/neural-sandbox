@@ -1,3 +1,4 @@
+import { MappingEditor } from "./MappingEditor";
 import {
   useEffect,
   useRef,
@@ -24,7 +25,6 @@ export type DialogState =
     }
   | { kind: "layer"; id?: string; parent?: string }
   | { kind: "connection"; source: string; target?: string; id?: string }
-  | { kind: "transforms"; id: string }
   | {
       kind: "confirm";
       title: string;
@@ -135,7 +135,7 @@ export default function EditorDialog({
   const [field, setField] = useState(feed?.field ?? "value");
   const [role, setRole] = useState<"input" | "target">(feed?.role ?? "input");
   const [transforms, setTransforms] = useState<TransformSpec[]>(
-    dataset?.transforms ?? [],
+    feed?.transforms ?? [],
   );
   const [localError, setLocalError] = useState("");
   const sourceId =
@@ -167,11 +167,9 @@ export default function EditorDialog({
           ? layer
             ? "Edit layer"
             : "Add connected layer"
-          : dialog.kind === "transforms"
-            ? "Set transforms"
-            : dialog.id
-              ? "Edit connection"
-              : "Connect to a layer";
+          : dialog.id
+            ? "Edit connection"
+            : "Connect to a layer";
 
   function addConnection(
     next: ProjectSpec,
@@ -188,6 +186,7 @@ export default function EditorDialog({
         layer: destination,
         field: field.trim(),
         role,
+        transforms,
       });
     } else
       next.network.links.push({
@@ -220,7 +219,6 @@ export default function EditorDialog({
         const item: DatasetSpec = {
           id: id.trim(),
           pos: dataset?.pos ?? dialog.position ?? nextPosition(project),
-          transforms: dataset?.transforms ?? [],
           source: {
             ...(dataset?.source.type === format ? dataset.source : {}),
             type: format,
@@ -256,7 +254,8 @@ export default function EditorDialog({
         );
         next.feeds = next.feeds.filter((item) => item.id !== dialog.id);
         addConnection(next, dialog.source, target, dialog.id);
-      } else if (dialog.kind === "transforms") {
+      }
+      if (fromDataset) {
         for (const transform of transforms) {
           if (
             transform.type === "select"
@@ -270,9 +269,6 @@ export default function EditorDialog({
           )
             throw new Error("Scale divisor must be a non-zero number.");
         }
-        next.datasets = next.datasets.map((item) =>
-          item.id === dialog.id ? { ...item, transforms } : item,
-        );
       }
       if (await save(next)) close();
     } catch (err) {
@@ -512,11 +508,11 @@ export default function EditorDialog({
                   </small>}
                 </div>
               )}
-              {dialog.kind === "transforms" && (
+              {fromDataset && (
                 <>
                   <p className="muted">
-                    Transforms run in this order on <strong>{dialog.id}</strong>
-                    .
+                    Transforms run in this order for this feed only. Other feeds
+                    from the same data source keep their own transforms.
                   </p>
                   {!transforms.length && (
                     <p>No transforms. Data will be used as loaded.</p>
@@ -534,6 +530,7 @@ export default function EditorDialog({
                                 index,
                                 defaultTransform(
                                   event.target.value as TransformSpec["type"],
+                                  field,
                                 ),
                               )
                             }
@@ -542,6 +539,7 @@ export default function EditorDialog({
                               "flatten",
                               "cast",
                               "scale",
+                              "mapping",
                               "one_hot",
                               "select",
                             ].map((type) => (
@@ -662,11 +660,16 @@ export default function EditorDialog({
                           </select>
                         </label>
                       )}
+                      {transform.type === "mapping" && (
+                        <MappingEditor mapping={transform.mapping} onChange={(mapping) =>
+                          updateTransform(index, { ...transform, mapping })
+                        } />
+                      )}
                       {transform.type === "one_hot" && (
                         <small>
                           {transform.categories
                             ? `Categories: ${JSON.stringify(transform.categories)}`
-                            : "Categories are inferred from the data."}
+                            : "Strings and numbers are supported directly. Unique values are sorted and assigned columns 0 through n−1, then one-hot encoded. No mapping transform is needed."}
                         </small>
                       )}
                     </div>
@@ -676,7 +679,7 @@ export default function EditorDialog({
                     onClick={() =>
                       setTransforms((items) => [
                         ...items,
-                        defaultTransform("flatten"),
+                        defaultTransform("flatten", field),
                       ])
                     }
                   >
@@ -708,16 +711,18 @@ export default function EditorDialog({
     </Modal>
   );
 }
-function defaultTransform(type: TransformSpec["type"]): TransformSpec {
+function defaultTransform(type: TransformSpec["type"], field = "value"): TransformSpec {
   switch (type) {
     case "select":
-      return { type, fields: ["value"] };
+      return { type, fields: [field] };
     case "cast":
-      return { type, field: "value", dtype: "float32" };
+      return { type, field, dtype: "float32" };
     case "scale":
-      return { type, field: "value", divisor: 255 };
+      return { type, field, divisor: 255 };
+    case "mapping":
+      return { type, field, mapping: {} };
     default:
-      return { type, field: "value" };
+      return { type, field };
   }
 }
 function inferFormat(path: string): DatasetSpec["source"]["type"] {

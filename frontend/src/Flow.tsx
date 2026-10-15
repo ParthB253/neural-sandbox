@@ -1,3 +1,6 @@
+import TrainingSidebar from "./training/TrainingSidebar";
+import TrainingPage from "./training/TrainingPage";
+import { defaults, useTraining } from "./training/useTraining";
 import { useCallback, useEffect, useRef, useState } from "react";
 import {
   ReactFlow,
@@ -43,7 +46,6 @@ function toGraph(project: ProjectSpec): { nodes: Node[]; edges: Edge[] } {
           kind: "dataset",
           filename: dataset.source.path.split(/[\\/]/).pop(),
           format: dataset.source.type,
-          transforms: dataset.transforms.length,
         },
       })),
       ...project.network.layers.map((layer) => ({
@@ -52,11 +54,7 @@ function toGraph(project: ProjectSpec): { nodes: Node[]; edges: Edge[] } {
         position: { x: layer.pos[0], y: layer.pos[1] },
         data: {
           kind: "layer",
-          name: !incoming.has(layer.id)
-            ? "Input"
-            : !outgoing.has(layer.id)
-              ? "Output"
-              : "Hidden",
+          name: !incoming.has(layer.id) ? "Input" : !outgoing.has(layer.id) ? "Output" : "Hidden",
           size: layer.size_mode === "auto" ? "Resolving…" : layer.size,
           activation: layer.activation,
         },
@@ -64,6 +62,7 @@ function toGraph(project: ProjectSpec): { nodes: Node[]; edges: Edge[] } {
     ],
     edges: connections(project).map((link) => ({
       ...link,
+      label: feedLabel(project, link.id),
       markerEnd: {
         type: MarkerType.ArrowClosed,
         color: "#8f99a8",
@@ -73,11 +72,16 @@ function toGraph(project: ProjectSpec): { nodes: Node[]; edges: Edge[] } {
     })),
   };
 }
-const errorMessage = (error: unknown) =>
-  error instanceof Error ? error.message : "Something went wrong.";
+function feedLabel(project: ProjectSpec, id: string) {
+  const feed = project.feeds.find((item) => item.id === id);
+  return feed ? `${feed.field} · ${feed.role} · ${feed.transforms.length} transforms` : undefined;
+}
+const errorMessage = (error: unknown) => (error instanceof Error ? error.message : "Something went wrong.");
 
 export default function Flow() {
   const [project, setProject] = useState<ProjectSpec>(emptyProject);
+  const [mode, setMode] = useState<"build" | "train">("build");
+  const training = useTraining(project);
   const [files, setFiles] = useState<StoredFile[]>([]);
   const [nodes, setNodes, onNodesChange] = useNodesState<Node>([]);
   const [edges, setEdges, onEdgesChange] = useEdgesState<Edge>([]);
@@ -98,28 +102,46 @@ export default function Flow() {
       ? JSON.stringify(project) !== savedSnapshot
       : project.network.title !== "Untitled network" ||
         project.network.layers.length > 0 ||
-        project.datasets.length > 0;
+        project.datasets.length > 0 ||
+        JSON.stringify(project.training ?? defaults) !== JSON.stringify(defaults);
 
   useEffect(() => {
     if (!ready) return;
     let active = true;
     const timer = window.setTimeout(() => {
-      void request<ProjectAnalysis>("/project/analysis", "POST", project).then((value) => {
-        if (!active) return;
-        setAnalysis(value);
-        setEdges((current) => current.map((edge) => ({ ...edge,
-          label: value.links[edge.id]?.weight_shape.map((size) => size ?? "?").join(" × "),
-        })));
-        setNodes((current) => current.map((node) => ({ ...node, data: {
-          ...node.data,
-          size: value.layers[node.id]?.size ?? (node.data.kind === "layer" ? "Unresolved" : node.data.size),
-          sizeMode: value.layers[node.id]?.size_mode,
-          sourceSchema: value.datasets[node.id],
-          issues: value.issues.filter((issue) => issue.node_id === node.id).map((issue) => issue.message),
-        } })));
-      }).catch(() => { if (active) setAnalysis(null); });
+      void request<ProjectAnalysis>("/project/analysis", "POST", project)
+        .then((value) => {
+          if (!active) return;
+          setAnalysis(value);
+          setEdges((current) =>
+            current.map((edge) => ({
+              ...edge,
+              label:
+                value.links[edge.id]?.weight_shape.map((size) => size ?? "?").join(" × ") ??
+                feedLabel(project, edge.id),
+            })),
+          );
+          setNodes((current) =>
+            current.map((node) => ({
+              ...node,
+              data: {
+                ...node.data,
+                size: value.layers[node.id]?.size ?? (node.data.kind === "layer" ? "Unresolved" : node.data.size),
+                sizeMode: value.layers[node.id]?.size_mode,
+                sourceSchema: value.datasets[node.id],
+                issues: value.issues.filter((issue) => issue.node_id === node.id).map((issue) => issue.message),
+              },
+            })),
+          );
+        })
+        .catch(() => {
+          if (active) setAnalysis(null);
+        });
     }, 200);
-    return () => { active = false; window.clearTimeout(timer); };
+    return () => {
+      active = false;
+      window.clearTimeout(timer);
+    };
   }, [project, ready, setNodes, setEdges]);
 
   useEffect(() => {
@@ -166,9 +188,7 @@ export default function Flow() {
       })
       .catch((err) => {
         setStatus("Backend unavailable");
-        setError(
-          `Could not load the project. Start the backend on port 8000 and retry. ${errorMessage(err)}`,
-        );
+        setError(`Could not load the project. Start the backend on port 8000 and retry. ${errorMessage(err)}`);
       })
       .finally(() => {
         locked.current = false;
@@ -221,8 +241,7 @@ export default function Flow() {
         ...project,
         network: {
           ...project.network,
-          title:
-            (copyTitle ?? project.network.title).trim() || "Untitled network",
+          title: (copyTitle ?? project.network.title).trim() || "Untitled network",
         },
       };
       const saved = await request<ProjectSpec>(
@@ -308,21 +327,16 @@ export default function Flow() {
     if (action === "connect") open({ kind: "connection", source: id });
     if (action === "edit")
       open({
-        kind: project.datasets.some((item) => item.id === id)
-          ? "source"
-          : "layer",
+        kind: project.datasets.some((item) => item.id === id) ? "source" : "layer",
         id,
       });
-    if (action === "transforms") open({ kind: "transforms", id });
   }
   function editConnection(id: string) {
     const edge = connections(project).find((item) => item.id === id);
     if (edge) open({ kind: "connection", ...edge });
   }
   function focusNode(id: string) {
-    setNodes((items) =>
-      items.map((node) => ({ ...node, selected: node.id === id })),
-    );
+    setNodes((items) => items.map((node) => ({ ...node, selected: node.id === id })));
     void flow.current?.fitView({
       nodes: [{ id }],
       duration: 250,
@@ -331,10 +345,7 @@ export default function Flow() {
     });
   }
   function savePositions() {
-    const position = (
-      id: string,
-      fallback: [number, number],
-    ): [number, number] => {
+    const position = (id: string, fallback: [number, number]): [number, number] => {
       const node = nodes.find((item) => item.id === id);
       return node ? [node.position.x, node.position.y] : fallback;
     };
@@ -357,8 +368,7 @@ export default function Flow() {
     open({
       kind: "confirm",
       title: `Delete ${file.name}?`,
-      description:
-        "This removes the stored file from the project. Upload it again if you need it later.",
+      description: "This removes the stored file from the project. Upload it again if you need it later.",
       confirm: async () => {
         if (locked.current) return false;
         locked.current = true;
@@ -366,9 +376,7 @@ export default function Flow() {
         setError("");
         try {
           await request(`/files/${file.id}`, "DELETE");
-          setFiles((previous) =>
-            previous.filter((item) => item.id !== file.id),
-          );
+          setFiles((previous) => previous.filter((item) => item.id !== file.id));
           setStatus("File deleted");
           return true;
         } catch (err) {
@@ -415,11 +423,8 @@ export default function Flow() {
           }
         />
         <aside className="sidebar">
-          <div
-            className="sidebar-tabs"
-            role="tablist"
-            aria-label="Project sidebar"
-          >
+          {mode === "train" ? <TrainingSidebar project={project} change={(p) => void save(p)} state={training} edit={editConnection} /> : <>
+          <div className="sidebar-tabs" role="tablist" aria-label="Project sidebar">
             <button
               id="files-tab"
               role="tab"
@@ -438,26 +443,30 @@ export default function Flow() {
             >
               Graph <span>{nodes.length}</span>
             </button>
-            <button id="run-tab" role="tab" aria-selected={tab === "run"} aria-controls="run-panel"
-              onClick={() => setTab("run")}>Run</button>
-          </div>
-            <div hidden={tab !== "run"} id="run-panel" className="sidebar-panel" role="tabpanel" aria-labelledby="run-tab">
-              <ExecutionPanel project={project} analysis={analysis} disabled={disabled} />
-            </div>
-          {tab === "run" ? null : tab === "files" ? (
-            <section
-              className="sidebar-panel"
-              id="files-panel"
-              role="tabpanel"
-              aria-labelledby="files-tab"
+            <button
+              id="run-tab"
+              role="tab"
+              aria-selected={tab === "run"}
+              aria-controls="run-panel"
+              onClick={() => setTab("run")}
             >
+              Run
+            </button>
+          </div>
+          <div
+            hidden={tab !== "run"}
+            id="run-panel"
+            className="sidebar-panel"
+            role="tabpanel"
+            aria-labelledby="run-tab"
+          >
+            <ExecutionPanel project={project} analysis={analysis} disabled={disabled} />
+          </div>
+          {tab === "run" ? null : tab === "files" ? (
+            <section className="sidebar-panel" id="files-panel" role="tabpanel" aria-labelledby="files-tab">
               <div className="section-heading">
                 <h2>Data sources</h2>
-                <button
-                  className="primary compact"
-                  disabled={disabled}
-                  onClick={() => uploadInput.current?.click()}
-                >
+                <button className="primary compact" disabled={disabled} onClick={() => uploadInput.current?.click()}>
                   + Upload files
                 </button>
               </div>
@@ -472,9 +481,7 @@ export default function Flow() {
                   event.target.value = "";
                 }}
               />
-              <p className="sidebar-help">
-                Store files here, then reuse them in your pipeline.
-              </p>
+              <p className="sidebar-help">Store files here, then reuse them in your pipeline.</p>
               {!files.length && (
                 <div className="sidebar-empty">
                   <span className="empty-icon">▤</span>
@@ -484,9 +491,7 @@ export default function Flow() {
               )}
               <ul className="item-list">
                 {files.map((file) => {
-                  const uses = project.datasets.filter(
-                    (item) => item.source.path === file.path,
-                  ).length;
+                  const uses = project.datasets.filter((item) => item.source.path === file.path).length;
                   return (
                     <li key={file.id} className="file-item">
                       <div className="file-summary">
@@ -495,27 +500,18 @@ export default function Flow() {
                           <strong title={file.name}>{file.name}</strong>
                           <small>
                             {formatBytes(file.size)}
-                            {uses
-                              ? ` · ${uses} source${uses === 1 ? "" : "s"}`
-                              : ""}
+                            {uses ? ` · ${uses} source${uses === 1 ? "" : "s"}` : ""}
                           </small>
                         </div>
                       </div>
                       <div className="file-actions">
-                        <button
-                          disabled={disabled}
-                          onClick={() => open({ kind: "source", file })}
-                        >
+                        <button disabled={disabled} onClick={() => open({ kind: "source", file })}>
                           + Add to canvas
                         </button>
                         <button
                           className="danger"
                           aria-label={`Delete file ${file.name}`}
-                          title={
-                            uses
-                              ? "Remove data source nodes using this file first"
-                              : "Delete stored file"
-                          }
+                          title={uses ? "Remove data source nodes using this file first" : "Delete stored file"}
                           disabled={disabled || uses > 0}
                           onClick={() => deleteFile(file)}
                         >
@@ -527,48 +523,28 @@ export default function Flow() {
                 })}
               </ul>
               <p className="storage-note">
-                Files are shared across networks. Use File → Save to keep this
-                network for later.
+                Files are shared across networks. Use File → Save to keep this network for later.
               </p>
             </section>
           ) : (
-            <section
-              className="sidebar-panel"
-              id="graph-panel"
-              role="tabpanel"
-              aria-labelledby="graph-tab"
-            >
+            <section className="sidebar-panel" id="graph-panel" role="tabpanel" aria-labelledby="graph-tab">
               <div className="section-heading">
                 <h2>Pipeline</h2>
                 <span className="muted">{nodes.length} nodes</span>
               </div>
-              <p className="sidebar-help">
-                Select a node to locate it. All wiring appears as connections.
-              </p>
+              <p className="sidebar-help">Select a node to locate it. All wiring appears as connections.</p>
               <h3>
                 Data sources <span>{project.datasets.length}</span>
               </h3>
-              {!project.datasets.length && (
-                <p className="muted list-empty">No data sources</p>
-              )}
+              {!project.datasets.length && <p className="muted list-empty">No data sources</p>}
               <ul className="item-list">
                 {project.datasets.map((item) => (
                   <li className="graph-item" key={item.id}>
-                    <button
-                      className="item-name"
-                      onClick={() => focusNode(item.id)}
-                    >
+                    <button className="item-name" onClick={() => focusNode(item.id)}>
                       {item.id}
-                      <small>
-                        {item.source.type.toUpperCase()} ·{" "}
-                        {item.transforms.length} transforms
-                      </small>
+                      <small>{item.source.type.toUpperCase()}</small>
                     </button>
-                    <button
-                      aria-label={`Edit ${item.id}`}
-                      disabled={disabled}
-                      onClick={() => act("edit", item.id)}
-                    >
+                    <button aria-label={`Edit ${item.id}`} disabled={disabled} onClick={() => act("edit", item.id)}>
                       Edit
                     </button>
                     <button
@@ -585,26 +561,18 @@ export default function Flow() {
               <h3>
                 Layers <span>{project.network.layers.length}</span>
               </h3>
-              {!project.network.layers.length && (
-                <p className="muted list-empty">No layers</p>
-              )}
+              {!project.network.layers.length && <p className="muted list-empty">No layers</p>}
               <ul className="item-list">
                 {project.network.layers.map((item) => (
                   <li className="graph-item" key={item.id}>
-                    <button
-                      className="item-name"
-                      onClick={() => focusNode(item.id)}
-                    >
+                    <button className="item-name" onClick={() => focusNode(item.id)}>
                       {item.id}
                       <small>
-                        {analysis?.layers[item.id]?.size ?? (item.size_mode === "auto" ? "Unresolved" : item.size)} units · {item.activation}
+                        {analysis?.layers[item.id]?.size ?? (item.size_mode === "auto" ? "Unresolved" : item.size)}{" "}
+                        units · {item.activation}
                       </small>
                     </button>
-                    <button
-                      aria-label={`Edit ${item.id}`}
-                      disabled={disabled}
-                      onClick={() => act("edit", item.id)}
-                    >
+                    <button aria-label={`Edit ${item.id}`} disabled={disabled} onClick={() => act("edit", item.id)}>
                       Edit
                     </button>
                     <button
@@ -621,27 +589,19 @@ export default function Flow() {
               <h3>
                 Connections <span>{allConnections.length}</span>
               </h3>
-              {!allConnections.length && (
-                <p className="muted list-empty">No connections</p>
-              )}
+              {!allConnections.length && <p className="muted list-empty">No connections</p>}
               <ul className="item-list">
                 {allConnections.map((item) => (
                   <li className="graph-item" key={item.id}>
-                    <button
-                      className="item-name"
-                      disabled={disabled}
-                      onClick={() => editConnection(item.id)}
-                    >
+                    <button className="item-name" disabled={disabled} onClick={() => editConnection(item.id)}>
                       {item.source} → {item.target}
-                      <small>Edit connection</small>
+                      <small>{feedLabel(project, item.id) ?? "Edit connection"}</small>
                     </button>
                     <button
                       className="danger"
                       aria-label={`Delete connection ${item.source} to ${item.target}`}
                       disabled={disabled}
-                      onClick={() =>
-                        void save(removeItems(project, [], [item.id]))
-                      }
+                      onClick={() => void save(removeItems(project, [], [item.id]))}
                     >
                       ×
                     </button>
@@ -650,13 +610,14 @@ export default function Flow() {
               </ul>
             </section>
           )}
+          </>}
         </aside>
-        <main className="flow" aria-label="Pipeline canvas">
+        <main className="flow" aria-label="Network workspace">
+          <div className="workspace-mode" aria-label="Workspace mode">{(["build", "train"] as const).map(value => <button key={value} aria-pressed={mode === value} onClick={() => setMode(value)}>{value === "build" ? "Build" : "Train"}</button>)}</div>
+          {mode === "train" && <TrainingPage state={training} ready={!disabled && project.network.links.length > 0 && project.feeds.some(f => f.role === "target") && !analysis?.issues.length} />}
+          <div style={{height:"100%",display:mode === "build" ? "block" : "none"}}>
           <div className="canvas-toolbar">
-            <button
-              disabled={disabled}
-              onClick={() => open({ kind: "source" })}
-            >
+            <button disabled={disabled} onClick={() => open({ kind: "source" })}>
               + Data source
             </button>
             <span>Hover on a node’s right edge to build your pipeline</span>
@@ -699,7 +660,7 @@ export default function Flow() {
             nodesDraggable={!disabled}
             nodesConnectable={!disabled}
             elementsSelectable={!disabled}
-            deleteKeyCode={disabled || dialog ? null : ["Backspace", "Delete"]}
+            deleteKeyCode={mode !== "build" || disabled || dialog ? null : ["Backspace", "Delete"]}
             onNodeDragStop={savePositions}
             onSelectionDragStop={savePositions}
             onNodeDoubleClick={(_, node) => act("edit", node.id)}
@@ -714,10 +675,7 @@ export default function Flow() {
                   target: connection.target,
                 });
             }}
-            onBeforeDelete={async ({
-              nodes: removedNodes,
-              edges: removedEdges,
-            }) => {
+            onBeforeDelete={async ({ nodes: removedNodes, edges: removedEdges }) => {
               if (!disabled && !document.querySelector("dialog[open]"))
                 await save(
                   removeItems(
@@ -742,12 +700,7 @@ export default function Flow() {
             }}
             proOptions={{ hideAttribution: true }}
           >
-            <Background
-              variant={BackgroundVariant.Dots}
-              gap={16}
-              size={1}
-              color="#c1c8d1"
-            />
+            <Background variant={BackgroundVariant.Dots} gap={16} size={1} color="#c1c8d1" />
             <Controls showInteractive={false} />
           </ReactFlow>
           {ready && !nodes.length && (
@@ -759,22 +712,18 @@ export default function Flow() {
                 <br />
                 Then build your pipeline, one layer at a time.
               </p>
-              <button
-                className="primary"
-                disabled={disabled}
-                onClick={() => open({ kind: "source" })}
-              >
+              <button className="primary" disabled={disabled} onClick={() => open({ kind: "source" })}>
                 Add data source
               </button>
             </div>
           )}
           <div className="canvas-footer">
             <span>
-              {project.datasets.length} data sources ·{" "}
-              {project.network.layers.length} layers · {allConnections.length}{" "}
+              {project.datasets.length} data sources · {project.network.layers.length} layers · {allConnections.length}{" "}
               connections
             </span>
             <span>Select + Delete to remove · Click a connection to edit</span>
+          </div>
           </div>
         </main>
         {dialog && (
