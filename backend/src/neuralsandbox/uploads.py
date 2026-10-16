@@ -6,6 +6,7 @@ from uuid import UUID, uuid4
 
 from fastapi import APIRouter, HTTPException, UploadFile, status
 from pydantic import BaseModel
+
 from .network_store import file_is_referenced
 
 router = APIRouter()
@@ -42,6 +43,7 @@ async def upload_file(file: UploadFile) -> StoredFile:
     name = (file.filename or "untitled").replace("\\", "/").split("/")[-1] or "untitled"
     if name in {".", ".."}:
         name = "untitled"
+
     # A separate directory preserves the original extension, including IDX names.
     folder = UPLOAD_DIR / file_id
     folder.mkdir()
@@ -56,6 +58,7 @@ async def upload_file(file: UploadFile) -> StoredFile:
                 dest.write(chunk)
         if size == 0:
             raise HTTPException(status_code=422, detail="Choose a non-empty file")
+
         stored = StoredFile(id=file_id, name=name, size=size, path=str(path.resolve()))
         _metadata(file_id).write_text(json.dumps(stored.model_dump()))
         return stored
@@ -77,6 +80,7 @@ def delete_file(file_id: str) -> None:
     stored = StoredFile.model_validate_json(metadata.read_text())
     if any(str(dataset.source.path) == stored.path for dataset in get_project().datasets):
         raise HTTPException(status_code=409, detail="Remove data source nodes using this file before deleting it")
+
     if file_is_referenced(stored.path):
         raise HTTPException(status_code=409, detail="A saved network uses this file. Remove its data source and save that network before deleting the file.")
     Path(stored.path).unlink(missing_ok=True)

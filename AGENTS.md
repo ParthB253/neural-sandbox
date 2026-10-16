@@ -15,4 +15,5 @@
 ## Formatting
 
 - Whitespace and specific formatting are handled by a formatter; formatter settings will be supplied separately.
+- Add blank lines between logically distinct parts of the same code block. A formatter cannot infer where those logical gaps belong.
 - Do not change the compactness of otherwise appropriate code merely for formatting preferences. Prioritize readability, clean structure, and clear correctness.

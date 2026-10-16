@@ -65,6 +65,7 @@ def _prepare(project: ProjectSpec):
     def issue(node_id, message):
         report["issues"].append({"node_id": node_id, "message": message})
 
+
     for spec in project.datasets:
         try:
             source = build_data_source(spec)
@@ -77,6 +78,7 @@ def _prepare(project: ProjectSpec):
             }
         except (ValueError, TypeError, OSError, KeyError, OverflowError, EOFError) as error:
             issue(spec.id, str(error))
+
 
     for spec in project.feeds:
         if spec.dataset not in sources:
@@ -92,6 +94,7 @@ def _prepare(project: ProjectSpec):
             bindings[spec.id] = (feed, width)
         except (ValueError, TypeError, KeyError, OverflowError) as error:
             issue(spec.id, str(error))
+
 
     for layer in project.network.layers:
         inputs = [feed for feed in project.feeds if feed.layer == layer.id and feed.role == "input"]
@@ -114,6 +117,7 @@ def _prepare(project: ProjectSpec):
             issue(layer.id, f"Unsupported activation: {layer.activation}")
         sizes[layer.id] = width
         report["layers"][layer.id] = {"size": width, "size_mode": layer.size_mode, "bias_shape": [1, width]}
+
     for link in project.network.links:
         report["links"][link.id] = {"weight_shape": [sizes[link.source], sizes[link.target]]}
     return report, sources, bindings, sizes
@@ -158,6 +162,7 @@ def forward(request: ForwardRequest):
     # Constructors receive explicit arrays so they don't touch global RNG state.
     def no_backward(_):
         raise NotImplementedError("This runtime supports forward execution only")
+
     layers = {layer.id: Layer(ACTIVATIONS[layer.activation], no_backward,
                              from_array=np.zeros(sizes[layer.id]), initialize=False)
               for layer in spec.layers}
@@ -165,6 +170,7 @@ def forward(request: ForwardRequest):
     for link in spec.links:
         shape = (sizes[link.source], sizes[link.target])
         network.connect(layers[link.source], layers[link.target], initialize=False)
+
     if request.checkpoint_run_id is not None:
         from .training import manager, RUN_DIR
         record = manager.get(str(request.checkpoint_run_id))
@@ -189,6 +195,7 @@ def forward(request: ForwardRequest):
                 if value.shape != link.weight_shape:
                     raise HTTPException(409, "Checkpoint weight dimensions do not match")
                 link.weights = value.copy()
+
     for feed_spec in input_specs:
         feed = bindings[feed_spec.id][0]
         feed.layer = layers[feed_spec.layer]
@@ -196,6 +203,7 @@ def forward(request: ForwardRequest):
         if not np.isfinite(values).all():
             raise HTTPException(422, detail=f"{feed_spec.id}: input contains NaN or infinity")
         feed.layer.values = values
+
     with np.errstate(over="ignore", invalid="ignore"):
         for layer in network.topo_order():
             if not np.isfinite(layer.compute()).all():
@@ -215,6 +223,7 @@ def forward(request: ForwardRequest):
         model_hash.update(layers[layer.id].bias.tobytes())
     for link in network.links:
         model_hash.update(link.weights.tobytes())
+
     return {"execution_id": str(uuid4()), "project_revision": report["project_revision"],
             "model_revision": _hash([report["project_revision"], model_hash.hexdigest()]),
             "data_revision": data_hash.hexdigest(), "sample_index": request.sample_index,

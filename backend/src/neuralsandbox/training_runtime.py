@@ -24,11 +24,13 @@ class TrainingRuntime:
         assert not report['issues'], '; '.join(i['message'] for i in report['issues'])
         assert project.network.links, 'Add a trainable connection'
         assert sum(sizes[l.source]*sizes[l.target] for l in project.network.links)+sum(sizes.values()) <= MAX_PARAMETERS, 'Network is too large'
+
         self.project = project
         rng = np.random.default_rng(project.training.seed)
         self.layers = {s.id: Layer(ACTIVATIONS[s.activation], None, from_array=np.zeros(sizes[s.id]),
             bias=np.zeros((1, sizes[s.id])),
             initialize=initialize, activation_vjp=lambda z, g, name=s.activation: activation_vjp(name, z, g)) for s in project.network.layers}
+
         self.network = Network(self.cost, self.derivative, list(self.layers.values()))
         for link in project.network.links:
             shape = (sizes[link.source], sizes[link.target])
@@ -42,6 +44,7 @@ class TrainingRuntime:
                     variance = 2 / fan_in if method == "he_normal" else 2 / (fan_in + sizes[link.target])
                     weights = rng.normal(0, np.sqrt(variance), shape)
             self.network.connect(self.layers[link.source], self.layers[link.target], weights, initialize=initialize)
+
         self.network.calculate_io()
         self.inputs, self.targets = {}, {}
         self.warnings: list[str] = []
@@ -62,11 +65,13 @@ class TrainingRuntime:
             assert layer not in destination, f'{spec.layer}: duplicate {spec.role} feed'
             destination[layer] = values
             digest.update(spec.id.encode()); digest.update(values.tobytes())
+
         assert set(self.inputs) == set(self.network.inputs), 'Every input needs one input feed'
         assert set(self.targets) == set(self.network.outputs), 'Every output needs one target feed'
         counts = {len(v) for v in [*self.inputs.values(), *self.targets.values()]}
         assert len(counts)==1 and next(iter(counts))>0, 'Inputs and targets must have equal nonzero row counts'
         self.count = next(iter(counts)); self.data_revision = digest.hexdigest()
+
         names = {v:k for k,v in self.layers.items()}
         self.losses = [project.training.losses.get(names[l], 'cross_entropy' if next(s.activation for s in project.network.layers if s.id==names[l])=='softmax' else 'mse') for l in self.network.outputs]
         for layer, loss in zip(self.network.outputs, self.losses):
@@ -74,6 +79,7 @@ class TrainingRuntime:
                 assert next(s.activation for s in project.network.layers if s.id==names[layer])=='softmax', 'Cross entropy requires softmax output'
                 y=self.targets[layer]
                 assert (y>=0).all() and np.allclose(y.sum(axis=1),1), 'Cross entropy targets must be one-hot or probability vectors'
+
         indices = np.random.default_rng(project.training.seed).permutation(self.count)
         n = int(self.count * project.training.validation_fraction)
         assert project.training.validation_fraction==0 or n>0, 'Not enough examples for the selected validation fraction'
@@ -113,6 +119,7 @@ class TrainingRuntime:
             for layer, values in inputs.items(): layer.values=values
             for layer in self.network.topo_order(): layer.compute()
             loss=self.cost([l.values for l in self.network.outputs],[targets[l] for l in self.network.outputs])
+
         assert np.isfinite(loss) and all(np.isfinite(l.weights).all() for l in self.network.links), 'Training produced non-finite values with the configured learning rate'
         accuracy = float(np.mean([np.mean(l.values.argmax(axis=1)==targets[l].argmax(axis=1)) for l in self.network.outputs])) if all(loss == 'cross_entropy' and hard_targets(targets[layer]) for layer, loss in zip(self.network.outputs, self.losses)) else None
         return float(loss), accuracy
@@ -124,9 +131,10 @@ class TrainingRuntime:
         accumulators = [OutputAccumulator('classification' if loss == 'cross_entropy' else 'regression', self.targets[layer].shape[1])
                         for layer, loss in zip(self.network.outputs, self.losses)]
         total_loss = 0.
+
         for offset in range(0, len(indices), self.project.training.batch_size):
-            if not boundary():
-                return None
+            if not boundary(): return None
+
             batch = indices[offset:offset + self.project.training.batch_size]
             loss, _ = self.step(batch, False)
             total_loss += loss * len(batch)

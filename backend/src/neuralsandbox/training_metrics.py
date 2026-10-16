@@ -27,6 +27,7 @@ class OutputAccumulator:
     def add(self, predictions: np.ndarray, targets: np.ndarray, loss: float) -> None:
         assert predictions.shape == targets.shape, 'Predictions and targets must have matching shapes'
         assert len(targets) > 0, 'Metric batches must contain examples'
+
         count = len(targets)
         self.loss_sum += loss * count
         if self.kind == 'classification':
@@ -48,6 +49,7 @@ class OutputAccumulator:
             total = self.count + count
             self.target_m2 += np.square(targets - mean).sum(axis=0) + delta**2 * self.count * count / total
             self.target_mean += delta * count / total
+
         self.count += count
 
     def result(self) -> dict[str, Any]:

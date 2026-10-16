@@ -18,6 +18,7 @@ router = APIRouter()
 TERMINAL = {'completed','cancelled','failed','interrupted'}
 RUN_DIR = Path(os.environ.get('NEURALSANDBOX_RUN_DIR', Path(__file__).resolve().parents[3]/'workspaces'/'runs'))
 
+
 class StartRequest(BaseModel):
     project: ProjectSpec
     request_id: UUID = Field(default_factory=uuid4)
@@ -32,6 +33,7 @@ class RunManager:
     def recover(self) -> None:
         with self.lock:
             self.stopping=False
+
             if RUN_DIR.exists():
                 for path in RUN_DIR.glob('*/run.json'):
                     record=json.loads(path.read_text())
@@ -64,6 +66,7 @@ class RunManager:
             if 'status' in values or ('stage' in values and values['stage'] != record.get('stage')):
                 record.setdefault('activity', []).append({'time':time.time(), 'message':values.get('status', values.get('stage'))})
                 record['activity']=record['activity'][-100:]
+
             if values.get('metrics'):
                 path = RUN_DIR / id / 'metrics.jsonl'
                 # Separate a torn final record from the next valid append after recovery.
@@ -76,6 +79,7 @@ class RunManager:
                     if needs_separator:
                         history.write('\n')
                     history.write(json.dumps(values['metrics'][-1], allow_nan=False)+'\n')
+
             record.update(values); record['sequence']+=1
             if values.get('status') in TERMINAL:
                 record['completed_at'] = time.time()
@@ -113,6 +117,7 @@ class RunManager:
                 if key not in seen:
                     observations.append(metric)
                     seen.add(key)
+
             observations.sort(key=lambda metric: metric['step'])
             lower = start_step if start_step is not None else min((m['step'] for m in observations), default=0)
             upper = end_step if end_step is not None else max((m['step'] for m in observations), default=0)
@@ -126,6 +131,7 @@ class RunManager:
                     if record['project']!=request.project.model_dump(mode='json'): raise HTTPException(409,'Request ID already used with different settings')
                     return self.get(record['id'])
             if self.stopping or (self.worker and self.worker.is_alive()): raise HTTPException(409,'One training run is already active')
+
             id=str(uuid4())
             self.runs[id]={'id':id,'request_id':str(request.request_id),'network_id':str(request.project.network.id),
                 'project':request.project.model_dump(mode='json'),'status':'preparing','stage':'Loading sources and transforms',
@@ -168,6 +174,7 @@ class RunManager:
     def boundary(self, id: str, runtime: TrainingRuntime) -> bool:
         while True:
             with self.lock: status=self.runs[id]['status']; stopping=self.stopping
+
             if stopping or status=='cancelling':
                 self.checkpoint(id,runtime,'latest'); self.publish(id,status='interrupted' if stopping else 'cancelled'); return False
             if status=='pausing':
@@ -175,6 +182,7 @@ class RunManager:
                     if self.runs[id]['status']=='pausing':
                         self.checkpoint(id,runtime,'latest'); self.publish(id,status='paused')
             elif status!='paused': return True
+
             time.sleep(.05)
 
     def execute(self, id: str, project: ProjectSpec) -> None:
@@ -183,6 +191,7 @@ class RunManager:
             rng=np.random.default_rng(settings.seed)
             total=int(np.ceil(len(runtime.train)/settings.batch_size))*settings.epochs
             self.publish(id,total_steps=total,warnings=runtime.warnings,data_revision=runtime.data_revision,train_indices=runtime.train.tolist(),validation_indices=runtime.validation.tolist())
+
             if not self.boundary(id,runtime): return
             with self.lock:
                 if self.runs[id]['status']=='preparing': self.publish(id,status='running')
@@ -190,6 +199,7 @@ class RunManager:
             for epoch in range(1,settings.epochs+1):
                 self.publish(id,stage='Preparing sample order',epoch=epoch)
                 order=rng.permutation(runtime.train) if settings.sampling=='shuffle' else np.sort(runtime.train)
+
                 for offset in range(0,len(order),settings.batch_size):
                     if not self.boundary(id,runtime): return
                     loss,_=runtime.step(order[offset:offset+settings.batch_size],True); step+=1
@@ -197,6 +207,7 @@ class RunManager:
                     if now-last>=.2 or offset+settings.batch_size>=len(order):
                         metrics.append({'step':step,'epoch':epoch,'time':time.time(),'loss':loss}); last=now
                         self.publish(id,stage='Training',step=step,metrics=metrics[-2000:])
+
                 if epoch % settings.evaluation_every == 0 or epoch == settings.epochs:
                     self.publish(id, stage='Evaluating training partition', step=step)
                     training = runtime.evaluate(runtime.train, lambda: self.boundary(id, runtime))
@@ -210,6 +221,7 @@ class RunManager:
                         outputs = list(validation['outputs'].values())
                         # Legacy accuracy is unambiguous only for one eligible classification output.
                         point['accuracy'] = outputs[0].get('accuracy') if len(outputs) == 1 else None
+
                     if not self.boundary(id, runtime): return
                     metrics.append(point)
                     self.publish(id, metrics=metrics[-2000:], evaluation_summary=point)
@@ -218,6 +230,7 @@ class RunManager:
                         self.publish(id, best_step=step, best_epoch=epoch, best_validation_loss=best)
                         self.checkpoint(id, runtime, 'best')
                 self.checkpoint(id,runtime,'latest')
+
             if not self.boundary(id,runtime): return
             with self.lock:
                 if self.runs[id]['status']=='cancelling':
@@ -232,12 +245,14 @@ class RunManager:
 
 manager=RunManager()
 
+
 @router.post('/training/runs',status_code=202)
 def start(request: StartRequest): return manager.start(request)
 
 @router.get('/training/runs')
 def runs(network_id: str, compact: bool = False):
     with manager.lock: return sorted([manager.get(id, compact=compact) for id,r in manager.runs.items() if r['network_id']==network_id], key=lambda r: r['created_at'], reverse=True)
+
 
 @router.get('/training/runs/{id}')
 def get(id: str): return manager.get(id)
@@ -252,6 +267,7 @@ def metric_history(id: str, start_step: int | None = Query(default=None, ge=0), 
     if max_points is not None:
         history['metrics'] = sample_metrics(history['metrics'], max_points, metric, output)
     return history
+
 
 @router.get('/training/runs/{id}/weights')
 def download_weights(id: str) -> FileResponse:
