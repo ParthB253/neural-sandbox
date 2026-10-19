@@ -46,6 +46,30 @@ class SelectFields(DataTransform):
         return data.select(self.fields)
 
 
+class Concatenate(DataTransform):
+    """Join numeric scalar/vector fields in the declared order into one vector."""
+
+    transform_type = "concatenate"
+
+    def __init__(self, fields: tuple[str, ...], field: str) -> None:
+        assert fields, "Concatenate needs at least one input field"
+        assert len(set(fields)) == len(fields), "Concatenate input fields must be unique"
+        assert field, "Concatenate needs an output field"
+        self.fields = fields
+        self.field = field
+
+    def apply(self, data: DataTable) -> DataTable:
+        columns: list[np.ndarray] = []
+        for name in self.fields:
+            values = _field(data, name)
+            if values.ndim not in (1, 2):
+                raise ValueError(f"Field {name!r} has sample shape {values.shape[1:]}; apply Flatten before Concatenate")
+            if values.dtype.kind not in "biuf":
+                raise ValueError(f"Field {name!r} is not numeric; cast or encode it before Concatenate")
+            columns.append(values.reshape(len(values), 1) if values.ndim == 1 else values)
+        return data.replace_field(self.field, np.concatenate(columns, axis=1))
+
+
 class Flatten(DataTransform):
     transform_type = "flatten"
 

@@ -3,10 +3,11 @@
 from .data_source import CsvSource, DataSource, IdxSource, ImageFolderSource, JsonSource, NpySource
 from .feed import Feed
 from .factory import build_data_source, build_feed
-from .transforms import Cast, DataTransform, Flatten, Mapping, OneHot, Scale, SelectFields
+from .transforms import Concatenate, Cast, DataTransform, Flatten, Mapping, OneHot, Scale, SelectFields
 
 __all__ = [
     "Cast",
+    "Concatenate",
     "CsvSource",
     "DataSource",
     "DataTransform",

@@ -156,8 +156,21 @@ class SelectFieldsSpec(BaseModel):
     fields: tuple[str, ...] = Field(min_length=1)
 
 
+class ConcatenateSpec(BaseModel):
+    type: Literal["concatenate"] = "concatenate"
+    fields: tuple[str, ...] = Field(min_length=1)
+    field: str = Field(min_length=1)
+
+    @field_validator("fields")
+    @classmethod
+    def valid_fields(cls, value: tuple[str, ...]) -> tuple[str, ...]:
+        if any(not name.strip() for name in value) or len(set(value)) != len(value):
+            raise ValueError("Concatenate requires non-empty, unique field names")
+        return value
+
+
 TransformSpec = Annotated[
-    FlattenSpec | CastSpec | ScaleSpec | MappingSpec | OneHotSpec | SelectFieldsSpec,
+    FlattenSpec | CastSpec | ScaleSpec | MappingSpec | OneHotSpec | SelectFieldsSpec | ConcatenateSpec,
     Field(discriminator="type"),
 ]
 

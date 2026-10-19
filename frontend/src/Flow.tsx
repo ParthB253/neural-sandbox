@@ -19,6 +19,7 @@ import LayerNode from "./LayerNode";
 import EditorDialog, { type DialogState } from "./EditorDialog";
 import NetworkHeader from "./NetworkHeader";
 import ExecutionPanel from "./ExecutionPanel";
+import Assistant from "./assistant/Assistant";
 import { EditorContext, type NodeAction } from "./editorContext";
 import {
   clearCanvas,
@@ -80,6 +81,8 @@ const errorMessage = (error: unknown) => (error instanceof Error ? error.message
 
 export default function Flow() {
   const [project, setProject] = useState<ProjectSpec>(emptyProject);
+  const projectRef = useRef(project);
+  useEffect(() => { projectRef.current = project; }, [project]);
   const [mode, setMode] = useState<"build" | "train">("build");
   const training = useTraining(project);
   const [files, setFiles] = useState<StoredFile[]>([]);
@@ -159,6 +162,7 @@ export default function Flow() {
 
   const apply = useCallback(
     (next: ProjectSpec) => {
+      projectRef.current = next;
       setProject(next);
       setAnalysis(null);
       const graph = toGraph(next);
@@ -231,6 +235,27 @@ export default function Flow() {
       setBusy(false);
     }
   }
+  async function commitAssistant(next: ProjectSpec, expected: ProjectSpec): Promise<ProjectSpec> {
+    if (locked.current || !ready || document.querySelector("dialog[open]")) {
+      throw new Error("The editor is busy. Finish the current edit and try again.");
+    }
+    if (JSON.stringify(projectRef.current) !== JSON.stringify(expected)) {
+      throw new Error("The canvas changed. Inspect the project again before applying edits.");
+    }
+    locked.current = true;
+    setBusy(true);
+    try {
+      // Do not abort a write in flight: always reconcile an acknowledged commit.
+      const saved = await request<ProjectSpec>("/project", "PUT", next);
+      apply(saved);
+      setStatus("Draft updated");
+      return saved;
+    } finally {
+      locked.current = false;
+      setBusy(false);
+    }
+  }
+
   async function persistNetwork(copyTitle?: string): Promise<boolean> {
     if (locked.current || !ready) return false;
     locked.current = true;
@@ -613,7 +638,10 @@ export default function Flow() {
           </>}
         </aside>
         <main className="flow" aria-label="Network workspace">
+          <div className="workspace-tools">
           <div className="workspace-mode" aria-label="Workspace mode">{(["build", "train"] as const).map(value => <button key={value} aria-pressed={mode === value} onClick={() => setMode(value)}>{value === "build" ? "Build" : "Train"}</button>)}</div>
+          <Assistant project={project} disabled={disabled} getProject={() => projectRef.current} commit={commitAssistant} />
+          </div>
           {mode === "train" && <TrainingPage state={training} ready={!disabled && project.network.links.length > 0 && project.feeds.some(f => f.role === "target") && !analysis?.issues.length} />}
           <div style={{height:"100%",display:mode === "build" ? "block" : "none"}}>
           <div className="canvas-toolbar">

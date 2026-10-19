@@ -258,8 +258,8 @@ export default function EditorDialog({
       if (fromDataset) {
         for (const transform of transforms) {
           if (
-            transform.type === "select"
-              ? !transform.fields.length
+            (transform.type === "select" || transform.type === "concatenate")
+              ? !transform.fields.length || (transform.type === "concatenate" && !transform.field.trim())
               : !transform.field.trim()
           )
             throw new Error("Each transform needs a field.");
@@ -542,6 +542,7 @@ export default function EditorDialog({
                               "mapping",
                               "one_hot",
                               "select",
+                              "concatenate",
                             ].map((type) => (
                               <option key={type} value={type}>
                                 {type.replace("_", " ")}
@@ -579,7 +580,7 @@ export default function EditorDialog({
                           ×
                         </button>
                       </div>
-                      {transform.type === "select" ? (
+                      {transform.type === "select" || transform.type === "concatenate" ? (
                         <label>
                           Fields (comma separated)
                           <input
@@ -614,6 +615,12 @@ export default function EditorDialog({
                               })
                             }
                           />
+                        </label>
+                      )}
+                      {transform.type === "concatenate" && (
+                        <label>Output field
+                          <input required value={transform.field} onChange={(event) => updateTransform(index, { ...transform, field: event.target.value })} />
+                          <small>Joins scalar and vector columns in this order. Set the feed's field to this output name; use Auto size on the input layer.</small>
                         </label>
                       )}
                       {transform.type === "scale" && (
@@ -713,6 +720,8 @@ export default function EditorDialog({
 }
 function defaultTransform(type: TransformSpec["type"], field = "value"): TransformSpec {
   switch (type) {
+    case "concatenate":
+      return { type, fields: [field], field: "features" };
     case "select":
       return { type, fields: [field] };
     case "cast":

@@ -25,6 +25,7 @@ export interface NetworkSummary {
   data_sources: number;
 }
 export type TransformSpec =
+  | { type: "concatenate"; fields: string[]; field: string }
   | { type: "flatten"; field: string }
   | { type: "cast"; field: string; dtype: string }
   | { type: "scale"; field: string; divisor: number }
@@ -70,6 +71,7 @@ export interface StoredFile {
 
 export interface ProjectAnalysis {
   project_revision: string;
+  feeds?: Record<string, { field: string; layer: string; role: "input" | "target"; width: number; fields: Record<string, { dtype: string; sample_shape: number[] }> }>;
   datasets: Record<string, {
     sample_count: number;
     fields: Record<string, { dtype: string; sample_shape: number[] }>;
@@ -107,9 +109,11 @@ export async function request<T>(
   path: string,
   method = "GET",
   body?: unknown,
+  signal?: AbortSignal,
 ): Promise<T> {
   const res = await fetch(`${API}${path}`, {
     method,
+    signal,
     headers:
       body instanceof FormData
         ? undefined
@@ -130,6 +134,7 @@ export async function request<T>(
         : Array.isArray(detail)
           ? detail.map((item: { msg: string }) => item.msg).join("; ")
           : `Request failed (${res.status})`,
+      { cause: { status: res.status, detail } },
     );
   }
   return res.status === 204 ? (undefined as T) : res.json();

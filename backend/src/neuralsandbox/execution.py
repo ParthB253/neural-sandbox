@@ -60,7 +60,7 @@ def project_revision(project: ProjectSpec) -> str:
 def _prepare(project: ProjectSpec):
     sources, bindings, sizes = {}, {}, {}
     report = {"project_revision": project_revision(project), "datasets": {},
-              "layers": {}, "links": {}, "issues": []}
+              "layers": {}, "links": {}, "feeds": {}, "issues": []}
 
     def issue(node_id, message):
         report["issues"].append({"node_id": node_id, "message": message})
@@ -92,6 +92,11 @@ def _prepare(project: ProjectSpec):
             if dtype.kind not in "biuf":
                 raise ValueError(f"Field {feed.field!r} is {dtype}; cast or encode it as numeric data")
             bindings[spec.id] = (feed, width)
+            report["feeds"][spec.id] = {
+                "field": spec.field, "layer": spec.layer, "role": spec.role, "width": width,
+                "fields": {name: {"dtype": field.dtype, "sample_shape": field.sample_shape}
+                           for name, field in feed.schema.items()},
+            }
         except (ValueError, TypeError, KeyError, OverflowError) as error:
             issue(spec.id, str(error))
 

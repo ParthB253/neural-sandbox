@@ -251,3 +251,80 @@ from logits with log-softmax and a fused output gradient, so confidently wrong
 predictions retain a gradient even when softmax probabilities underflow to zero.
 Older runs/checkpoints retain their original results; start a fresh run after
 correcting input transforms.
+
+## Network assistant
+
+The floating assistant beside Build / Train runs in the browser and calls
+OpenRouter directly. Set `OPENROUTER_API_KEY` in `frontend/.env` (a repository-root
+`.env` also works); optionally set `OPENROUTER_MODEL` to a tool-capable model ID.
+The default is `openrouter/auto`. Restart Vite after changing environment values.
+Settings in the assistant let you override the key and model for the current
+page session. Environment-provided keys are included in the client bundle: use
+this setup locally, not for a public deployment with a shared secret.
+
+The frontend separates the OpenRouter adapter, bounded agent loop, tool registry,
+conversation state, and floating UI under `frontend/src/assistant/`. Each turn
+repeats model → sequential tool execution → tool observations until a final reply,
+cancellation, or the 12-round / 48-call limit. Tool errors are returned to the model
+so it can correct its request. OpenRouter reasoning metadata is replayed without
+showing private reasoning in the UI. The conversation shows tool execution status;
+**Run logs** in the assistant header opens the detailed diagnostic history.
+
+For small changes, `edit_project` applies JSON Patch operations to the last
+inspected draft, retaining all unrelated values. `update_project` remains available
+for complete replacements, but rejects missing network/configuration fields before
+they can be filled with backend defaults. Configuration conflicts require a fresh
+inspection; layout-only moves are merged while preserving user positions. Three
+identical failed tool requests stop the loop early.
+
+Tools use the existing `/files`, `/node-types`, `/project/analysis`, and `/project`
+endpoints. The project tool schema comes from `/openapi.json`. Changes are validated
+by project analysis and committed atomically with `PUT /project`, then reconciled
+with the canvas. No new backend agent endpoint or agent framework is required.
+The canvas remains interactive during inference. Writes require the latest
+inspected snapshot; conflicts tell the agent to inspect again. Undo is available
+while the canvas still matches the assistant's latest commit and never crosses
+an intervening manual edit. Cancelling stops inference and pending tools; an
+already-started write is reconciled before finishing. Switching networks cancels
+the conversation. Saved networks and file deletion are not exposed as tools.
+
+Verification: `npm test`, `npm run build`, and `npm run lint` from `frontend/`.
+Tests cover tool observations, recoverable errors, cancellation, loop limits,
+conflicting edits, validation, schema expansion, and the OpenRouter wire format.
+
+### Assistant run logs
+
+Open the assistant and select **Run logs**, or **View run log** beneath a new
+request. Expand events to inspect tool arguments, results, errors, timestamps,
+and durations. Model events also include the request body and provider response
+(including usage, finish reasons, response IDs and HTTP errors when returned).
+Backend validation errors preserve status codes and field locations. Project
+commits and Undo are recorded separately. Filters show tool, model, backend,
+commit, or unsuccessful events; **Export run** / **Export all** downloads JSON.
+
+Logs are stored locally in this browser, independently of chat history and
+network switching. Capture begins with requests made after this feature was
+added; earlier activity cannot be reconstructed. Reloading marks unfinished
+runs interrupted. **New chat** retains logs; **Clear finished logs** removes
+completed history while preserving active runs. Storage is bounded to 20 runs,
+roughly 1.5 million serialized characters overall and 240,000 per run. Individual
+details truncate after 16,000 characters, and omitted events are indicated.
+If browser storage is unavailable, logs remain in memory with an export reminder.
+API keys and authorization fields are redacted before storage; private reasoning
+is omitted. Logs do contain prompts, network configuration and tool results.
+
+### Combining input columns
+
+A feed delivers only its **Field**. **Select** retains named columns for later
+transforms; it does not join them. To build one input vector from several CSV
+columns, cast/scale numeric fields and one-hot encode categories first, then add
+**Concatenate** with the fields in the desired order and an output field such as
+`features`. Set the feed's Field to `features` and the input layer to Auto size.
+Five scalar fields plus 9- and 15-column one-hot fields produce 29 input features.
+Concatenate requires numeric scalars or vectors; flatten images/matrices first.
+It preserves source fields and leaves other feeds unchanged.
+
+`POST /project/analysis` now includes a `feeds` report with each valid feed's
+selected field, delivered width, and transformed field schemas. The assistant can
+inspect these directly instead of guessing widths or changing CSV parsing options.
+Invisible BOM characters are escaped as `\uFEFF` in diagnostic logs.
