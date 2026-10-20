@@ -1,18 +1,20 @@
 .workspace-tools {
   position: absolute;
   top: 18px;
-  left: 50%;
+  left: 0;
   right: 18px;
   z-index: 20;
   display: flex;
-  align-items: flex-start;
+  align-items: center;
+  justify-content: flex-end;
   gap: 14px;
   pointer-events: none;
-  transform: translateX(-100px);
 }
 .workspace-tools .workspace-mode {
-  position: static;
-  transform: none;
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  transform: translate(-50%, -50%);
   flex-shrink: 0;
   pointer-events: auto;
 }
@@ -85,7 +87,7 @@
 .assistant-settings input { min-width: 0; width: 100%; box-sizing: border-box; padding: 8px; border: 1px solid var(--border-strong); border-radius: 4px; font: inherit; color: var(--text); background: var(--surface); }
 .assistant-settings small { line-height: 1.6; }
 @media (max-width: 1200px) {
-  .workspace-tools { left: auto; right: 18px; transform: none; width: min(580px, calc(100% - 180px)); }
+  .workspace-tools { left: 0; right: 18px; width: auto; }
   .canvas-toolbar span { display: none; }
 }
 @media (max-width: 800px) {

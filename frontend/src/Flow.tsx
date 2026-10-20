@@ -18,7 +18,6 @@ import "@xyflow/react/dist/style.css";
 import LayerNode from "./LayerNode";
 import EditorDialog, { type DialogState } from "./EditorDialog";
 import NetworkHeader from "./NetworkHeader";
-import ExecutionPanel from "./ExecutionPanel";
 import Assistant from "./assistant/Assistant";
 import { EditorContext, type NodeAction } from "./editorContext";
 import {
@@ -88,7 +87,7 @@ export default function Flow() {
   const [files, setFiles] = useState<StoredFile[]>([]);
   const [nodes, setNodes, onNodesChange] = useNodesState<Node>([]);
   const [edges, setEdges, onEdgesChange] = useEdgesState<Edge>([]);
-  const [tab, setTab] = useState<"files" | "graph" | "run">("files");
+  const [tab, setTab] = useState<"files" | "graph">("files");
   const [analysis, setAnalysis] = useState<ProjectAnalysis | null>(null);
   const [dialog, setDialog] = useState<DialogState | null>(null);
   const [busy, setBusy] = useState(true);
@@ -468,26 +467,8 @@ export default function Flow() {
             >
               Graph <span>{nodes.length}</span>
             </button>
-            <button
-              id="run-tab"
-              role="tab"
-              aria-selected={tab === "run"}
-              aria-controls="run-panel"
-              onClick={() => setTab("run")}
-            >
-              Run
-            </button>
           </div>
-          <div
-            hidden={tab !== "run"}
-            id="run-panel"
-            className="sidebar-panel"
-            role="tabpanel"
-            aria-labelledby="run-tab"
-          >
-            <ExecutionPanel project={project} analysis={analysis} disabled={disabled} />
-          </div>
-          {tab === "run" ? null : tab === "files" ? (
+          {tab === "files" ? (
             <section className="sidebar-panel" id="files-panel" role="tabpanel" aria-labelledby="files-tab">
               <div className="section-heading">
                 <h2>Data sources</h2>

@@ -419,12 +419,13 @@ h3 {
 }
 .canvas-toolbar {
   position: absolute;
-  top: 16px;
+  top: 18px;
   left: 18px;
   right: 18px;
   z-index: 5;
   display: flex;
   align-items: center;
+  height: 44px;
   gap: 14px;
   pointer-events: none;
 }
